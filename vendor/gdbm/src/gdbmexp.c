@@ -1,8 +1,7 @@
 /* gdbmexp.c - Export a GDBM database. */
 
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 2007, 2011, 2013, 2016-2017 Free Software Foundation,
-   Inc.
+   Copyright (C) 2007-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,8 +20,13 @@
 # include "autoconf.h"
 # include <arpa/inet.h>
 
+#ifdef GDBM_EXPORT_18
+# define GDBM_SET_ERRNO(dbf, ec, fatal) gdbm_errno = ec
+# define GDBM_ASSERT_CONSISTENCY(dbf, val)
+#else
 # include "gdbmdefs.h"
 # include "gdbm.h"
+#endif
 
 int
 gdbm_export_to_file (GDBM_FILE dbf, FILE *fp)
@@ -78,7 +82,12 @@ gdbm_export_to_file (GDBM_FILE dbf, FILE *fp)
       
       count++;
     }
-  if (gdbm_errno != GDBM_ITEM_NOT_FOUND)
+  if (gdbm_last_errno (dbf) == GDBM_ITEM_NOT_FOUND)
+    {
+      gdbm_clear_error (dbf);
+      gdbm_errno = GDBM_NO_ERROR;
+    }
+  else
     return -1;
   
   return count;

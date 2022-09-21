@@ -1,8 +1,7 @@
-/* systems.h - Most of the system dependant code and defines are here. */
+/* systems.h - Most of the system dependent code and defines are here. */
 
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 1990-1991, 1993, 2007, 2011, 2013, 2016-2017 Free
-   Software Foundation, Inc.
+   Copyright (C) 1990-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,6 +19,7 @@
 /* Include all system headers first. */
 #include <sys/types.h>
 #include <stdio.h>
+#include <stddef.h>
 #if HAVE_SYS_FILE_H
 # include <sys/file.h>
 #endif
@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 
 #ifndef SEEK_SET
 # define SEEK_SET        0
@@ -51,31 +52,15 @@
 # define STATBLKSIZE(st) 1024
 #endif
 
-/* Do we have ftruncate? */
-#if HAVE_FTRUNCATE
-# define TRUNCATE(dbf) ftruncate (dbf->desc, 0)
-#else
-# define TRUNCATE(dbf) close( open (dbf->name, O_RDWR|O_TRUNC, mode));
+#if ! HAVE_STRUCT_STAT_ST_MTIM
+# if HAVE_STRUCT_STAT_ST_MTIMESPEC
+#   define st_mtim st_mtimespec
+#   define HAVE_STRUCT_STAT_ST_MTIM 1
+# endif
 #endif
 
 #ifndef STDERR_FILENO
 # define STDERR_FILENO 2
 #endif
 
-/* I/O macros. */
-#if HAVE_MMAP
-# define __read(_dbf, _buf, _size)	_gdbm_mapped_read(_dbf, _buf, _size)
-# define __write(_dbf, _buf, _size)	_gdbm_mapped_write(_dbf, _buf, _size)
-# define __lseek(_dbf, _off, _whn)	_gdbm_mapped_lseek(_dbf, _off, _whn)
-# define __fsync(_dbf)			_gdbm_mapped_sync(_dbf)
-#else
-# define __read(_dbf, _buf, _size)	read(_dbf->desc, _buf, _size)
-# define __write(_dbf, _buf, _size)	write(_dbf->desc, _buf, _size)
-# define __lseek(_dbf, _off, _whn)	lseek(_dbf->desc, _off, _whn)
-# if HAVE_FSYNC
-#  define __fsync(_dbf)			fsync(_dbf->desc)
-# else
-#  define __fsync(_dbf)			{ sync(); sync(); }
-# endif
-#endif
 

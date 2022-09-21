@@ -1,5 +1,5 @@
 /* This file is part of GDBM test suite.
-   Copyright (C) 2011, 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include "gdbm.h"
 #include "progname.h"
 
@@ -115,6 +116,11 @@ main (int argc, char **argv)
       exit (1);
     }
   
-  gdbm_close (dbf);
+  if (gdbm_close (dbf))
+    {
+      fprintf (stderr, "gdbm_close: %s; %s\n", gdbm_strerror (gdbm_errno),
+	       strerror (errno));
+      exit (3);
+    }
   exit (0);
 }

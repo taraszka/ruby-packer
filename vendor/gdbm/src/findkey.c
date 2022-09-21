@@ -1,8 +1,7 @@
 /* findkey.c - The routine that finds a key entry in the file. */
 
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 1990-1991, 1993, 2007, 2011, 2013, 2016-2017 Free
-   Software Foundation, Inc.
+   Copyright (C) 1990-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,7 +21,38 @@
 
 #include "gdbmdefs.h"
 
+/* Return true if OFF is a valid offset for GDBM_FILE */
+static inline int
+gdbm_offset_ok (GDBM_FILE dbf, off_t off)
+{
+  off_t filesize;
 
+  if (_gdbm_file_size (dbf, &filesize))
+    return 0;
+  return off <= filesize;
+}
+
+/* Return true if the element of hash table at index ELEM_LOC is a valid
+   hash element and represents a key/data pair that can be retrieved from
+   DBF. */
+static inline int
+gdbm_bucket_element_valid_p (GDBM_FILE dbf, int elem_loc)
+{
+  return elem_loc < dbf->header->bucket_elems
+    && dbf->bucket->h_table[elem_loc].hash_value != -1
+    && dbf->bucket->h_table[elem_loc].key_size >= 0
+    && off_t_sum_ok (dbf->bucket->h_table[elem_loc].data_pointer,
+		     dbf->bucket->h_table[elem_loc].key_size)
+    && dbf->bucket->h_table[elem_loc].data_size >= 0
+    && off_t_sum_ok (dbf->bucket->h_table[elem_loc].data_pointer
+		     + dbf->bucket->h_table[elem_loc].key_size,
+		     dbf->bucket->h_table[elem_loc].data_size)
+    && gdbm_offset_ok (dbf,
+		       dbf->bucket->h_table[elem_loc].data_pointer
+		       + dbf->bucket->h_table[elem_loc].key_size
+		       + dbf->bucket->h_table[elem_loc].data_size);
+}
+  
 /* Read the data found in bucket entry ELEM_LOC in file DBF and
    return a pointer to it.  Also, cache the read value. */
 
@@ -30,63 +60,88 @@ char *
 _gdbm_read_entry (GDBM_FILE dbf, int elem_loc)
 {
   int rc;
+  off_t file_pos;
   int key_size;
   int data_size;
-  off_t file_pos;
+  size_t dsize;
   data_cache_elem *data_ca;
-  
-  /* Is it already in the cache? */
-  if (dbf->cache_entry->ca_data.elem_loc == elem_loc)
-    return dbf->cache_entry->ca_data.dptr;
 
+  /* Is it already in the cache? */
+  if (dbf->cache_mru->ca_data.elem_loc == elem_loc)
+    return dbf->cache_mru->ca_data.dptr;
+
+  if (!gdbm_bucket_element_valid_p (dbf, elem_loc))
+    {
+      GDBM_SET_ERRNO (dbf, GDBM_BAD_HASH_TABLE, TRUE);
+      return NULL;
+    }
+  
   /* Set sizes and pointers. */
   key_size = dbf->bucket->h_table[elem_loc].key_size;
   data_size = dbf->bucket->h_table[elem_loc].data_size;
-  data_ca = &dbf->cache_entry->ca_data;
-  
-  /* Set up the cache. */
-  if (data_ca->dptr != NULL) free (data_ca->dptr);
-  data_ca->key_size = key_size;
-  data_ca->data_size = data_size;
-  data_ca->elem_loc = elem_loc;
-  data_ca->hash_val = dbf->bucket->h_table[elem_loc].hash_value;
+  dsize = key_size + data_size;
+  data_ca = &dbf->cache_mru->ca_data;
 
-  if (GDBM_DEBUG_HOOK ("_gdbm_read_entry:malloc-failure"))
-    data_ca->dptr = NULL;
-  else if (key_size + data_size == 0)
-    data_ca->dptr = (char *) malloc (1);
-  else
-    data_ca->dptr = (char *) malloc (key_size + data_size);
-  if (data_ca->dptr == NULL)
+  /* Make sure data_ca has sufficient space to accommodate both
+     key and content. */
+  if (dsize <= data_ca->dsize)
     {
-      GDBM_SET_ERRNO2 (dbf, GDBM_MALLOC_ERROR, FALSE, GDBM_DEBUG_LOOKUP);
-      _gdbm_fatal (dbf, _("malloc error"));
-      return NULL;
+      if (data_ca->dsize == 0)
+	{
+	  data_ca->dptr = malloc (1);
+	  if (data_ca->dptr)
+	    data_ca->dsize = 1;
+	  else
+	    {
+	      GDBM_SET_ERRNO2 (dbf, GDBM_MALLOC_ERROR, FALSE, GDBM_DEBUG_LOOKUP);
+	      _gdbm_fatal (dbf, _("malloc error"));
+	      return NULL;
+	    }
+	}
+    }
+  else
+    {
+      char *p = realloc (data_ca->dptr, dsize);
+      if (p)
+	{
+	  data_ca->dptr = p;
+	  data_ca->dsize = dsize;
+	}
+      else
+	{
+	  GDBM_SET_ERRNO2 (dbf, GDBM_MALLOC_ERROR, FALSE, GDBM_DEBUG_LOOKUP);
+	  _gdbm_fatal (dbf, _("malloc error"));
+	  return NULL;
+	}
     }
 
   /* Read into the cache. */
-  file_pos = GDBM_DEBUG_OVERRIDE ("_gdbm_read_entry:lseek-failure",
-	      __lseek (dbf, dbf->bucket->h_table[elem_loc].data_pointer, 
-		       SEEK_SET));
+  file_pos = gdbm_file_seek (dbf, dbf->bucket->h_table[elem_loc].data_pointer,
+                             SEEK_SET);
   if (file_pos != dbf->bucket->h_table[elem_loc].data_pointer)
     {
       GDBM_SET_ERRNO2 (dbf, GDBM_FILE_SEEK_ERROR, TRUE, GDBM_DEBUG_LOOKUP);
       _gdbm_fatal (dbf, _("lseek error"));
       return NULL;
     }
-  
-  rc = GDBM_DEBUG_OVERRIDE ("_gdbm_read_entry:read-failure",
-	    _gdbm_full_read (dbf, data_ca->dptr, key_size+data_size));
+
+  rc = _gdbm_full_read (dbf, data_ca->dptr, key_size+data_size);
   if (rc)
     {
       GDBM_DEBUG (GDBM_DEBUG_ERR|GDBM_DEBUG_LOOKUP|GDBM_DEBUG_READ,
-		  "%s: error reading entry: %s",
-		  dbf->name, gdbm_db_strerror (dbf));
+                 "%s: error reading entry: %s",
+                 dbf->name, gdbm_db_strerror (dbf));
       dbf->need_recovery = TRUE;
-      _gdbm_fatal (dbf, gdbm_strerror (rc));
+      _gdbm_fatal (dbf, gdbm_db_strerror (dbf));
       return NULL;
     }
   
+  /* Set up the cache. */
+  data_ca->key_size = key_size;
+  data_ca->data_size = data_size;
+  data_ca->elem_loc = elem_loc;
+  data_ca->hash_val = dbf->bucket->h_table[elem_loc].hash_value;
+
   return data_ca->dptr;
 }
 
@@ -124,17 +179,17 @@ _gdbm_findkey (GDBM_FILE dbf, datum key, char **ret_dptr, int *ret_hash_val)
     return -1;
   
   /* Is the element the last one found for this bucket? */
-  if (dbf->cache_entry->ca_data.elem_loc != -1 
-      && new_hash_val == dbf->cache_entry->ca_data.hash_val
-      && dbf->cache_entry->ca_data.key_size == key.dsize
-      && dbf->cache_entry->ca_data.dptr != NULL
-      && memcmp (dbf->cache_entry->ca_data.dptr, key.dptr, key.dsize) == 0)
+  if (dbf->cache_mru->ca_data.elem_loc != -1 
+      && new_hash_val == dbf->cache_mru->ca_data.hash_val
+      && dbf->cache_mru->ca_data.key_size == key.dsize
+      && dbf->cache_mru->ca_data.dptr != NULL
+      && memcmp (dbf->cache_mru->ca_data.dptr, key.dptr, key.dsize) == 0)
     {
       GDBM_DEBUG (GDBM_DEBUG_LOOKUP, "%s: found in cache", dbf->name);
       /* This is it. Return the cache pointer. */
       if (ret_dptr)
-	*ret_dptr = dbf->cache_entry->ca_data.dptr + key.dsize;
-      return dbf->cache_entry->ca_data.elem_loc;
+	*ret_dptr = dbf->cache_mru->ca_data.dptr + key.dsize;
+      return dbf->cache_mru->ca_data.elem_loc;
     }
       
   /* It is not the cached value, search for element in the bucket. */

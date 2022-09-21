@@ -1,5 +1,5 @@
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2016-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -52,7 +52,7 @@ backup_name (char const *name)
   
 #define INITIAL_SUFFIX ".~1~"
   
-  len = strlen (name + sizeof (INITIAL_SUFFIX));
+  len = strlen (name) + sizeof (INITIAL_SUFFIX);
   buf = malloc (len);
   if (!buf)
     return NULL;
@@ -91,8 +91,6 @@ static int
 _gdbm_finish_transfer (GDBM_FILE dbf, GDBM_FILE new_dbf,
 		       gdbm_recovery *rcvr, int flags)
 {
-  int i;
-  
   /* Write everything. */
   if (_gdbm_end_update (new_dbf))
     {
@@ -128,6 +126,10 @@ _gdbm_finish_transfer (GDBM_FILE dbf, GDBM_FILE new_dbf,
 	}
       rcvr->backup_name = bkname;
     }
+
+  /* Restore cache settings */
+  if (!dbf->cache_auto)
+    _gdbm_cache_init (new_dbf, dbf->cache_size);
   
   /* Move the new file to old name. */
 
@@ -145,44 +147,49 @@ _gdbm_finish_transfer (GDBM_FILE dbf, GDBM_FILE new_dbf,
   free (dbf->header);
   free (dbf->dir);
 
-  if (dbf->bucket_cache != NULL)
-    {
-      for (i = 0; i < dbf->cache_size; i++)
-	 {
-	   free (dbf->bucket_cache[i].ca_bucket);
-	   free (dbf->bucket_cache[i].ca_data.dptr);
-	 }
-      free (dbf->bucket_cache);
-   }
+  _gdbm_cache_flush (dbf);
+  _gdbm_cache_free (dbf);
 
-   dbf->desc              = new_dbf->desc;
-   dbf->header            = new_dbf->header;
-   dbf->dir               = new_dbf->dir;
-   dbf->bucket            = new_dbf->bucket;
-   dbf->bucket_dir        = new_dbf->bucket_dir;
-   dbf->last_read         = new_dbf->last_read;
-   dbf->bucket_cache      = new_dbf->bucket_cache;
-   dbf->cache_size        = new_dbf->cache_size;
-   dbf->header_changed    = new_dbf->header_changed;
-   dbf->directory_changed = new_dbf->directory_changed;
-   dbf->bucket_changed    = new_dbf->bucket_changed;
-   dbf->second_changed    = new_dbf->second_changed;
+  dbf->lock_type         = new_dbf->lock_type;
+  dbf->desc              = new_dbf->desc;
+  dbf->header            = new_dbf->header;
+  dbf->dir               = new_dbf->dir;
+  dbf->bucket            = new_dbf->bucket;
+  dbf->bucket_dir        = new_dbf->bucket_dir;
 
-   free (new_dbf);
+  dbf->avail             = new_dbf->avail;
+  dbf->avail_size        = new_dbf->avail_size;
+  dbf->xheader           = new_dbf->xheader;
+
+  dbf->cache_bits        = new_dbf->cache_bits;  
+  dbf->cache_size        = new_dbf->cache_size;  
+  dbf->cache_num         = new_dbf->cache_num;   
+  dbf->cache             = new_dbf->cache;   
+  dbf->cache_mru         = new_dbf->cache_mru;   
+  dbf->cache_lru         = new_dbf->cache_lru;   
+  dbf->cache_avail       = new_dbf->cache_avail;
+  
+  dbf->header_changed    = new_dbf->header_changed;
+  dbf->directory_changed = new_dbf->directory_changed;
+
+  dbf->file_size = -1;
+  
+  dbf->mapped_size_max   = new_dbf->mapped_size_max;    
+  dbf->mapped_region	 = new_dbf->mapped_region;      
+  dbf->mapped_size	 = new_dbf->mapped_size;        
+  dbf->mapped_pos	 = new_dbf->mapped_pos;         
+  dbf->mapped_off	 = new_dbf->mapped_off;         
+  dbf->mmap_preread      = new_dbf->mmap_preread;        
+    
+  free (new_dbf->name);
+  free (new_dbf);
    
- #if HAVE_MMAP
-   /* Re-initialize mapping if required */
-   if (dbf->memory_mapping)
-     _gdbm_mapped_init (dbf);
- #endif
+  /* Make sure the new database is all on disk. */
+  gdbm_file_sync (dbf);
 
-   /* Make sure the new database is all on disk. */
-   __fsync (dbf);
-
-   /* Force the right stuff for a correct bucket cache. */
-   dbf->cache_entry    = &dbf->bucket_cache[0];
-   return _gdbm_get_bucket (dbf, 0);
- }
+  /* Force the right stuff for a correct bucket cache. */
+  return _gdbm_get_bucket (dbf, 0);
+}
 
 int
 _gdbm_next_bucket_dir (GDBM_FILE dbf, int bucket_dir)
@@ -205,6 +212,8 @@ check_db (GDBM_FILE dbf)
   int bucket_dir, i;
   int nbuckets = GDBM_DIR_COUNT (dbf);
 
+  if (_gdbm_validate_header (dbf))
+    return 1;
   for (bucket_dir = 0; bucket_dir < nbuckets;
        bucket_dir = _gdbm_next_bucket_dir (dbf, bucket_dir))
     {      
@@ -312,15 +321,30 @@ run_recovery (GDBM_FILE dbf, GDBM_FILE new_dbf, gdbm_recovery *rcvr, int flags)
 	    
 	      if (gdbm_store (new_dbf, key, data, GDBM_INSERT) != 0)
 		{
-		  if (flags & GDBM_RCVR_ERRFUN)
-		    rcvr->errfun (rcvr->data,
-				  _("fatal: can't store element %d:%d (%lu:%d): %s"),
-				  bucket_dir, i,
-				  (unsigned long) dbf->bucket->h_table[i].data_pointer,
-				  dbf->bucket->h_table[i].key_size
+		  switch (gdbm_last_errno (new_dbf))
+		    {
+		    case GDBM_CANNOT_REPLACE:
+		      rcvr->duplicate_keys++;
+		      if (flags & GDBM_RCVR_ERRFUN)
+			rcvr->errfun (rcvr->data,
+		          _("ignoring duplicate key %d:%d (%lu:%d)"),
+			  bucket_dir, i,
+			  (unsigned long) dbf->bucket->h_table[i].data_pointer,
+			  dbf->bucket->h_table[i].key_size
+				      + dbf->bucket->h_table[i].data_size);
+		      break;
+		      
+		    default:
+		      if (flags & GDBM_RCVR_ERRFUN)
+			rcvr->errfun (rcvr->data,
+			  _("fatal: can't store element %d:%d (%lu:%d): %s"),
+			  bucket_dir, i,
+			  (unsigned long) dbf->bucket->h_table[i].data_pointer,
+			  dbf->bucket->h_table[i].key_size
 				    + dbf->bucket->h_table[i].data_size,
-				  gdbm_db_strerror (new_dbf));
-		  return -1;
+			  gdbm_db_strerror (new_dbf));
+		      return -1;
+		    }
 		}	
 	    }
 	}
@@ -356,11 +380,13 @@ gdbm_recover (GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
   rcvr->recovered_buckets = 0;
   rcvr->failed_keys = 0;
   rcvr->failed_buckets = 0;
+  rcvr->duplicate_keys = 0;
   rcvr->backup_name = NULL;
 
   rc = 0;
   if ((flags & GDBM_RCVR_FORCE) || check_db (dbf))
     {
+      gdbm_clear_error (dbf);
       len = strlen (dbf->name);
       new_name = malloc (len + sizeof (TMPSUF));
       if (!new_name)
@@ -381,6 +407,7 @@ gdbm_recover (GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
       new_dbf = gdbm_fd_open (fd, new_name, dbf->header->block_size,
 			      GDBM_WRCREAT
 			      | (dbf->cloexec ? GDBM_CLOEXEC : 0)
+			      | (dbf->xheader ? GDBM_NUMSYNC : 0)
 			      | GDBM_CLOERROR, dbf->fatal_err);
   
       SAVE_ERRNO (free (new_name));
@@ -392,7 +419,7 @@ gdbm_recover (GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
 	}
 
       rc = run_recovery (dbf, new_dbf, rcvr, flags);
-  
+      
       if (rc == 0)
 	rc = _gdbm_finish_transfer (dbf, new_dbf, rcvr, flags);
       else

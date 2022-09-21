@@ -1,5 +1,5 @@
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 2011, 2013, 2016-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -212,7 +212,7 @@ get_parms (struct dump_file *file)
 		  file->buffer[file->buflevel++] = 0;
 		}
 	      else
-		return GDBM_ILLEGAL_DATA;
+		return GDBM_MALFORMED_DATA;
 	    }
 	  else
 	    break;
@@ -226,7 +226,7 @@ get_parms (struct dump_file *file)
   return ferror (file->fp) ? GDBM_FILE_READ_ERROR : 0;
 }
 
-int
+static int
 get_len (const char *param, size_t *plen)
 {
   unsigned long n;
@@ -244,10 +244,10 @@ get_len (const char *param, size_t *plen)
       return 0;
     }
 
-  return GDBM_ILLEGAL_DATA;
+  return GDBM_MALFORMED_DATA;
 }
 
-int
+static int
 read_record (struct dump_file *file, char *param, int n, datum *dat)
 {
   int rc;
@@ -276,7 +276,7 @@ read_record (struct dump_file *file, char *param, int n, datum *dat)
   if (rc)
     return rc;
   if (consumed_size != file->buflevel || decoded_size != len)
-    return GDBM_ILLEGAL_DATA;
+    return GDBM_MALFORMED_DATA;
   dat->dptr = (void*) file->data[n].buffer;
   return 0;
 }
@@ -295,7 +295,6 @@ _set_gdbm_meta_info (GDBM_FILE dbf, char *param, int meta_mask)
   int meta_flags = 0;
   const char *p;
   char *end;
-  int rc = 0;
 
   if (!(meta_mask & GDBM_META_MASK_OWNER))
     {
@@ -366,7 +365,11 @@ _set_gdbm_meta_info (GDBM_FILE dbf, char *param, int meta_mask)
 	  if ((meta_flags & (META_UID|META_GID)) != (META_UID|META_GID))
 	    {
 	      struct stat st;
-	      fstat (fd, &st);
+	      if (fstat (fd, &st))
+		{
+		  GDBM_SET_ERRNO (dbf, GDBM_FILE_STAT_ERROR, FALSE);
+		  return 1;
+		}
 	      if (!(meta_flags & META_UID))
 		owner_uid = st.st_uid;
 	      if (!(meta_flags & META_GID))
@@ -375,25 +378,37 @@ _set_gdbm_meta_info (GDBM_FILE dbf, char *param, int meta_mask)
 	  if (fchown (fd, owner_uid, owner_gid))
 	    {
 	      GDBM_SET_ERRNO (dbf, GDBM_ERR_FILE_OWNER, FALSE);
-	      rc = 1;
+	      return 1;
 	    }
 	}
       if ((meta_flags & META_MODE) && fchmod (fd, mode))
 	{
 	  GDBM_SET_ERRNO (dbf, GDBM_ERR_FILE_OWNER, FALSE);
-	  rc = 1;
+	  return 1;
 	}
     }
-  return rc;
+  return 0;
 }
 
 int
+_gdbm_str2fmt (char const *str)
+{
+  if (strcmp (str, "numsync") == 0)
+    return GDBM_NUMSYNC;
+  if (strcmp (str, "standard") == 0)
+    return 0;
+  return -1;
+}
+
+static int
 _gdbm_load_file (struct dump_file *file, GDBM_FILE dbf, GDBM_FILE *ofp,
 		 int replace, int meta_mask)
 {
   char *param = NULL;
   int rc;
   GDBM_FILE tmp = NULL;
+  int format = 0;
+  const char *p;
   
   rc = get_parms (file);
   if (rc)
@@ -406,19 +421,44 @@ _gdbm_load_file (struct dump_file *file, GDBM_FILE dbf, GDBM_FILE *ofp,
       file->bufsize = file->buflevel = 0;
     }
   else
-    return GDBM_ILLEGAL_DATA;
+    return GDBM_MALFORMED_DATA;
 
+  if ((p = getparm (file->header, "format")) != NULL)
+    {
+      int n = _gdbm_str2fmt (p);
+      if (n != -1)
+	format = n;
+      /* FIXME: other values silently ignored */
+    }
+      
   if (!dbf)
     {
+      int flags = replace ? GDBM_WRCREAT : GDBM_NEWDB;
       const char *filename = getparm (file->header, "file");
+      
       if (!filename)
 	return GDBM_NO_DBNAME;
-      tmp = gdbm_open (filename, 0,
-		       replace ? GDBM_WRCREAT : GDBM_NEWDB, 0600, NULL);
+
+      tmp = gdbm_open (filename, 0, flags | format, 0600, NULL);
       if (!tmp)
 	return gdbm_errno;
       dbf = tmp;
     }
+
+  if (format)
+    {
+      /*
+       * If the database is already in the requested format, the call to
+       * gdbm_convert will return 0 immediately.
+       */
+      if (gdbm_convert (dbf, format))
+	{	
+	  rc = gdbm_errno;
+	  if (tmp)
+	    gdbm_close (tmp);
+	  return rc;
+	}
+    }	  
   
   param = file->header;
   while (1)
@@ -526,7 +566,7 @@ xdatum_read (FILE *fp, datum *d, size_t *pdmax)
   return c;
 }
 
-int
+static int
 gdbm_load_bdb_dump (struct dump_file *file, GDBM_FILE dbf, int replace)
 {
   datum xd[2];
@@ -539,6 +579,7 @@ gdbm_load_bdb_dump (struct dump_file *file, GDBM_FILE dbf, int replace)
   memset (&xd, 0, sizeof (xd));
   xs[0] = xs[1] = 0;
   i = 0;
+  rc = 0;
   while ((c = fgetc (file->fp)) == ' ')
     {
       rc = xdatum_read (file->fp, &xd[i], &xs[i]);

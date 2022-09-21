@@ -1,8 +1,7 @@
-/* gdbmerrno.c - convert gdbm errors into english. */
+/* gdbmerrno.c - convert gdbm errors into English. */
 
 /* This file is part of GDBM, the GNU data base manager.
-   Copyright (C) 1993, 2007, 2011, 2013, 2016-2017 Free Software
-   Foundation, Inc.
+   Copyright (C) 1993-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,7 +22,13 @@
 #include "gdbmdefs.h"
 
 /* The dbm error number is placed in the variable GDBM_ERRNO. */
-gdbm_error gdbm_errno = GDBM_NO_ERROR;
+static GDBM_THREAD_LOCAL gdbm_error gdbm_errno_storage = GDBM_NO_ERROR;
+
+int *
+gdbm_errno_location (void)
+{
+  return &gdbm_errno_storage;
+}
 
 /* Store error code EC in the database structure DBF and in the
    global variable gdbm_error. 
@@ -112,11 +117,11 @@ const char * const gdbm_errlist[_GDBM_MAX_ERRNO+1] = {
   [GDBM_ITEM_NOT_FOUND]         = N_("Item not found"),
   [GDBM_REORGANIZE_FAILED]      = N_("Reorganize failed"),
   [GDBM_CANNOT_REPLACE]         = N_("Cannot replace"),
-  [GDBM_ILLEGAL_DATA]           = N_("Illegal data"),
+  [GDBM_MALFORMED_DATA]         = N_("Malformed data"),
   [GDBM_OPT_ALREADY_SET]        = N_("Option already set"),
-  [GDBM_OPT_ILLEGAL]            = N_("Illegal option"),
+  [GDBM_OPT_BADVAL]             = N_("Bad option value"),
   [GDBM_BYTE_SWAPPED]           = N_("Byte-swapped file"),
-  [GDBM_BAD_FILE_OFFSET]        = N_("Wrong file offset"),
+  [GDBM_BAD_FILE_OFFSET]        = N_("File header assumes wrong off_t size"),
   [GDBM_BAD_OPEN_FLAGS]         = N_("Bad file flags"),
   [GDBM_FILE_STAT_ERROR]        = N_("Cannot stat file"),
   [GDBM_FILE_EOF]               = N_("Unexpected end of file"),
@@ -125,7 +130,21 @@ const char * const gdbm_errlist[_GDBM_MAX_ERRNO+1] = {
   [GDBM_ERR_FILE_MODE]          = N_("Failed to restore file mode"),
   [GDBM_NEED_RECOVERY]          = N_("Database needs recovery"),
   [GDBM_BACKUP_FAILED]          = N_("Failed to create backup copy"),
-  [GDBM_DIR_OVERFLOW]           = N_("Bucket directory overflow")
+  [GDBM_DIR_OVERFLOW]           = N_("Bucket directory overflow"),
+  [GDBM_BAD_BUCKET]             = N_("Malformed bucket header"),
+  [GDBM_BAD_HEADER]             = N_("Malformed database file header"),
+  /* TRANSLATORS: avail_block is a field name. Don't translate it. */
+  [GDBM_BAD_AVAIL]              = N_("Malformed avail_block"),
+  [GDBM_BAD_HASH_TABLE]         = N_("Malformed hash table"),
+  [GDBM_BAD_DIR_ENTRY]          = N_("Invalid directory entry"),
+  [GDBM_FILE_CLOSE_ERROR]       = N_("Error closing file"),
+  [GDBM_FILE_SYNC_ERROR]        = N_("Error synchronizing file"),
+  [GDBM_FILE_TRUNCATE_ERROR]    = N_("Error truncating file"),
+  [GDBM_BUCKET_CACHE_CORRUPTED] = N_("Bucket cache corrupted"),
+  [GDBM_BAD_HASH_ENTRY]         = N_("Malformed bucket hash entry"),
+  [GDBM_ERR_SNAPSHOT_CLONE]     = N_("Reflink failed"),
+  [GDBM_ERR_REALPATH]           = N_("Failed to resolve real path name"),
+  [GDBM_ERR_USAGE]              = N_("Function usage error"),
 };
 
 const char *
@@ -167,7 +186,13 @@ int const gdbm_syserr[_GDBM_MAX_ERRNO+1] = {
   [GDBM_FILE_SEEK_ERROR]        = 1,
   [GDBM_FILE_READ_ERROR]        = 1,
   [GDBM_FILE_STAT_ERROR]        = 1,
-  [GDBM_BACKUP_FAILED]          = 1
+  [GDBM_BACKUP_FAILED]          = 1,
+  [GDBM_FILE_CLOSE_ERROR]       = 1,
+  [GDBM_FILE_SYNC_ERROR]        = 1,
+  [GDBM_FILE_TRUNCATE_ERROR]    = 1,
+  [GDBM_ERR_SNAPSHOT_CLONE]     = 1,
+  [GDBM_ERR_REALPATH]           = 1,
+  [GDBM_ERR_USAGE]              = 1
 };
 
 /* Returns true if system errno value is meaningful for GDBM error

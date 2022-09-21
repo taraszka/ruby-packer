@@ -1,6 +1,5 @@
 /* This file is part of GDBM.
-   Copyright (C) 2007, 2011, 2013, 2016-2017 Free Software Foundation,
-   Inc.
+   Copyright (C) 2007-2022 Free Software Foundation, Inc.
 
    GDBM is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -33,9 +32,17 @@
 #  define MAP_FAILED ((void*)-1)
 # endif
 
+# if defined(MAP_POPULATE)
+#  define GDBM_MMAP_PREREAD MAP_POPULATE
+# elif defined(MAP_PREFAULT_READ)
+#  define GDBM_MMAP_PREREAD MAP_PREFAULT_READ
+# else
+#  define GDBM_MMAP_PREREAD 0
+# endif
+
 /* Translate current offset in the mapped region into the absolute position */
 # define _GDBM_MMAPPED_POS(dbf) ((dbf)->mapped_off + (dbf)->mapped_pos)
-/* Return true if the absolute offset OFF lies within the currentlty mmapped
+/* Return true if the absolute offset OFF lies within the currently mmapped
    region */
 # define _GDBM_IN_MAPPED_REGION_P(dbf, off) \
   ((off) >= (dbf)->mapped_off \
@@ -44,19 +51,14 @@
 # define _GDBM_NEED_REMAP(dbf) \
   (!(dbf)->mapped_region || (dbf)->mapped_pos == (dbf)->mapped_size)
 /* Return the sum of the currently mapped size and DELTA */
-# define SUM_FILE_SIZE(dbf, delta) \
-  ((dbf)->mapped_off + (dbf)->mapped_size + (delta))
-
-/* Store the size of the GDBM file DBF in *PSIZE.
-   Return 0 on success and -1 on failure. */
-int
-_gdbm_file_size (GDBM_FILE dbf, off_t *psize)
+static inline off_t
+SUM_FILE_SIZE (GDBM_FILE dbf, off_t delta)
 {
-  struct stat sb;
-  if (fstat (dbf->desc, &sb))
-    return -1; 
-  *psize = sb.st_size;
-  return 0;
+  if (delta >= 0
+      && off_t_sum_ok (dbf->mapped_off, dbf->mapped_size)
+      && off_t_sum_ok (dbf->mapped_off + dbf->mapped_size, delta))
+    return dbf->mapped_off + dbf->mapped_size + delta;
+  return -1;
 }
 
 /* Unmap the region. Reset all mapped fields to initial values. */
@@ -80,7 +82,8 @@ int
 _gdbm_internal_remap (GDBM_FILE dbf, size_t size)
 {
   void *p;
-  int flags = PROT_READ;
+  int flags = MAP_SHARED;
+  int prot = PROT_READ;
   size_t page_size = sysconf (_SC_PAGESIZE);
 
   if (dbf->mapped_region)
@@ -97,10 +100,14 @@ _gdbm_internal_remap (GDBM_FILE dbf, size_t size)
   dbf->mapped_off = (dbf->mapped_off / page_size) * page_size;
 
   if (dbf->read_write)
-    flags |= PROT_WRITE;
+    prot |= PROT_WRITE;
+
+  if (dbf->mmap_preread)
+    {
+      flags |= GDBM_MMAP_PREREAD;
+    }
   
-  p = mmap (NULL, dbf->mapped_size, flags, MAP_SHARED,
-	    dbf->desc, dbf->mapped_off);
+  p = mmap (NULL, dbf->mapped_size, prot, flags, dbf->desc, dbf->mapped_off);
   if (p == MAP_FAILED)
     {
       dbf->mapped_region = NULL;
@@ -120,7 +127,7 @@ _gdbm_internal_remap (GDBM_FILE dbf, size_t size)
    If the file is opened with write permissions, FLAG controls how
    it is expanded.  The value _REMAP_DEFAULT truncates SIZE to the
    actual file size.  The value _REMAP_EXTEND extends the file, if
-   necessary, to accomodate max(SIZE,dbf->header->next_block) bytes.
+   necessary, to accommodate max(SIZE,dbf->header->next_block) bytes.
    Finally, the value _REMAP_END instructs the function to use 
    max(SIZE, file_size) as the upper bound of the mapped region.
 
@@ -137,10 +144,20 @@ _gdbm_mapped_remap (GDBM_FILE dbf, off_t size, int flag)
 {
   off_t file_size, pos;
 
+  if (size < 0)
+    {
+      errno = EINVAL;
+      GDBM_SET_ERRNO (dbf, GDBM_FILE_SEEK_ERROR, TRUE);
+      return -1;
+    }
+
+  if (size < dbf->mapped_size)
+    /* Nothing to do */
+    return 0;
+  
   if (_gdbm_file_size (dbf, &file_size))
     {
       SAVE_ERRNO (_gdbm_mapped_unmap (dbf));
-      GDBM_SET_ERRNO (dbf, GDBM_FILE_STAT_ERROR, FALSE);
       return -1; 
     }
 
@@ -153,17 +170,14 @@ _gdbm_mapped_remap (GDBM_FILE dbf, off_t size, int flag)
 	{
 	  if (flag != _REMAP_DEFAULT)
 	    {
-	      char c = 0;
-
 	      if (size < dbf->header->next_block)
 		size = dbf->header->next_block;
-	      lseek (dbf->desc, size - 1, SEEK_SET);
-	      write (dbf->desc, &c, 1);
+	      if (_gdbm_file_extend (dbf, size))
+		return -1;
 	      file_size = size;
 	    }
 	  else
 	    {
-	      size = file_size;
 	      return 0;
 	    }
 	}
@@ -191,7 +205,12 @@ _gdbm_mapped_remap (GDBM_FILE dbf, off_t size, int flag)
       dbf->mapped_pos += dbf->mapped_off;
       dbf->mapped_off = 0;
     }
-
+  if (pos > file_size)
+    {
+      errno = EINVAL;
+      GDBM_SET_ERRNO (dbf, GDBM_FILE_SEEK_ERROR, TRUE);
+      return -1;
+    }
   return _gdbm_internal_remap (dbf, size);
 }
 
@@ -229,6 +248,10 @@ _gdbm_mapped_read (GDBM_FILE dbf, void *buffer, size_t len)
 		{
 		  int rc;
 
+		  if (dbf->need_recovery)
+		    return -1;
+
+		  /* Disable memory mapping and retry */
 		  dbf->memory_mapping = FALSE;
 		  if (lseek (dbf->desc, pos, SEEK_SET) != pos)
 		    return total > 0 ? total : -1;
@@ -278,6 +301,9 @@ _gdbm_mapped_write (GDBM_FILE dbf, void *buffer, size_t len)
 				      _REMAP_EXTEND))
 		{
 		  int rc;
+
+		  if (dbf->need_recovery)
+		    return -1;
 
 		  dbf->memory_mapping = FALSE;
 		  if (lseek (dbf->desc, pos, SEEK_SET) != pos)
@@ -334,15 +360,22 @@ _gdbm_mapped_lseek (GDBM_FILE dbf, off_t offset, int whence)
 	  {
  	    off_t file_size;
 	    if (_gdbm_file_size (dbf, &file_size))
-	      {
-		GDBM_SET_ERRNO (dbf, GDBM_FILE_STAT_ERROR, FALSE);
-		return -1;
-	      }
+	      return -1;
 	    needle = file_size - offset; 
 	    break;
 	  }
+
+	default:
+	  errno = EINVAL;
+	  return -1;
 	}
 
+      if (needle < 0)
+	{
+	  errno = EINVAL;
+	  return -1;
+	}
+      
       if (!_GDBM_IN_MAPPED_REGION_P (dbf, needle))
 	{
 	  _gdbm_mapped_unmap (dbf);
@@ -360,12 +393,16 @@ _gdbm_mapped_lseek (GDBM_FILE dbf, off_t offset, int whence)
 int
 _gdbm_mapped_sync (GDBM_FILE dbf)
 {
+  int rc;
+  
   if (dbf->mapped_region)
-    {
-      return msync (dbf->mapped_region, dbf->mapped_size,
-		    MS_SYNC | MS_INVALIDATE);
-    }
-  return fsync (dbf->desc);
+    rc = msync (dbf->mapped_region, dbf->mapped_size,
+		MS_SYNC | MS_INVALIDATE);
+  else
+    rc = fsync (dbf->desc);
+  if (rc)
+    GDBM_SET_ERRNO (dbf, GDBM_FILE_SYNC_ERROR, TRUE);
+  return rc;
 }
 
 #endif
