@@ -1,21 +1,11 @@
-/* $Id: tclock.c,v 1.34 2014/08/02 16:37:03 tom Exp $ */
+/* $Id: tclock.c,v 1.42 2020/12/26 17:56:36 tom Exp $ */
 
+#define NEED_TIME_H
 #include <test.priv.h>
 
 #if HAVE_MATH_H
 
 #include <math.h>
-
-#if TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# if HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
 
 /*
   tclock - analog/digital clock for curses.
@@ -58,7 +48,7 @@ plot(int x, int y, int col)
     MvAddCh(y, x, (chtype) col);
 }
 
-/* Draw a diagonal(arbitrary) line using Bresenham's alogrithm. */
+/* Draw a diagonal(arbitrary) line using Bresenham's algorithm. */
 static void
 dline(int pair, int from_x, int from_y, int x2, int y2, int ch)
 {
@@ -116,8 +106,28 @@ dline(int pair, int from_x, int from_y, int x2, int y2, int ch)
     }
 }
 
+static void
+usage(void)
+{
+    static const char *msg[] =
+    {
+	"Usage: tclock [options]"
+	,""
+	,"Options:"
+#if HAVE_USE_DEFAULT_COLORS
+	," -d       invoke use_default_colors"
+#endif
+    };
+    size_t n;
+
+    for (n = 0; n < SIZEOF(msg); n++)
+	fprintf(stderr, "%s\n", msg[n]);
+
+    ExitProgram(EXIT_FAILURE);
+}
+
 int
-main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
+main(int argc, char *argv[])
 {
     int i, cx, cy;
     double cr, mradius, hradius, mangle, hangle;
@@ -130,13 +140,31 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
     bool odd = FALSE;
     time_t tim;
     struct tm *t;
-    char szChar[10];
+    char szChar[20];
     char *text;
     short my_bg = COLOR_BLACK;
 #if HAVE_GETTIMEOFDAY
     struct timeval current;
 #endif
     double fraction = 0.0;
+#if HAVE_USE_DEFAULT_COLORS
+    bool d_option = FALSE;
+#endif
+
+    while ((ch = getopt(argc, argv, "d")) != -1) {
+	switch (ch) {
+#if HAVE_USE_DEFAULT_COLORS
+	case 'd':
+	    d_option = TRUE;
+	    break;
+#endif
+	default:
+	    usage();
+	    /* NOTREACHED */
+	}
+    }
+    if (optind < argc)
+	usage();
 
     setlocale(LC_ALL, "");
 
@@ -149,7 +177,7 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
     if (has_colors()) {
 	start_color();
 #if HAVE_USE_DEFAULT_COLORS
-	if (use_default_colors() == OK)
+	if (d_option && (use_default_colors() == OK))
 	    my_bg = -1;
 #endif
 	init_pair(1, COLOR_RED, my_bg);
@@ -175,7 +203,7 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
 	sangle = (i + 1) * (2.0 * PI) / 12.0;
 	sdx = A2X(sangle, sradius);
 	sdy = A2Y(sangle, sradius);
-	sprintf(szChar, "%d", i + 1);
+	_nc_SPRINTF(szChar, _nc_SLIMIT(sizeof(szChar)) "%d", i + 1);
 
 	MvAddStr(cy - sdy, cx + sdx, szChar);
     }
@@ -254,8 +282,7 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
 
     }
 
-    curs_set(1);
-    endwin();
+    stop_curses();
     ExitProgram(EXIT_SUCCESS);
 }
 #else

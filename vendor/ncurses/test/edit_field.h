@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2003-2008,2013 Free Software Foundation, Inc.              *
+ * Copyright 2020 Thomas E. Dickey                                          *
+ * Copyright 2003-2013,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -26,7 +27,7 @@
  * authorization.                                                           *
  ****************************************************************************/
 /*
- * $Id: edit_field.h,v 1.9 2013/06/08 15:46:01 tom Exp $
+ * $Id: edit_field.h,v 1.11 2020/02/02 23:34:34 tom Exp $
  *
  * Interface of edit_field.c
  */
@@ -49,9 +50,10 @@ typedef struct {
     int *row_lengths;
 } FieldAttrs;
 
-extern FieldAttrs *field_attrs(FIELD * field);
-extern void init_edit_field(FIELD * field, char *value);
+extern FieldAttrs *field_attrs(FIELD *field);
+extern void init_edit_field(FIELD *field, char *value);
 extern void help_edit_field(void);
-extern int edit_field(FORM * form, int *result);
+extern int edit_field(FORM *form, int *result);
+extern void free_edit_field(FIELD *field);
 
 #endif /* EDIT_FORM_H_incl */

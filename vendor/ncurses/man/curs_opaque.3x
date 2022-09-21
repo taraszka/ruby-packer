@@ -1,5 +1,6 @@
 .\"***************************************************************************
-.\" Copyright (c) 2007-2014,2015 Free Software Foundation, Inc.              *
+.\" Copyright 2020 Thomas E. Dickey                                          *
+.\" Copyright 2007-2014,2015 Free Software Foundation, Inc.                  *
 .\"                                                                          *
 .\" Permission is hereby granted, free of charge, to any person obtaining a  *
 .\" copy of this software and associated documentation files (the            *
@@ -26,7 +27,7 @@
 .\" authorization.                                                           *
 .\"***************************************************************************
 .\"
-.\" $Id: curs_opaque.3x,v 1.12 2015/04/11 10:23:49 tom Exp $
+.\" $Id: curs_opaque.3x,v 1.15 2020/10/24 09:41:22 tom Exp $
 .TH curs_opaque 3X ""
 .ie \n(.g .ds `` \(lq
 .el       .ds `` ``
@@ -46,41 +47,44 @@
 \fBis_pad\fR,
 \fBis_scrollok\fR,
 \fBis_subwin\fR,
-\fBis_syncok\fR \- \fBcurses\fR window properties
+\fBis_syncok\fR,
+\fBwgetdelay\fR,
+\fBwgetparent\fR,
+\fBwgetscrreg\fR \- \fBcurses\fR window properties
 .ad
 .hy
 .SH SYNOPSIS
 \fB#include <curses.h>\fR
 .sp
-\fBbool is_cleared(const WINDOW *win);\fR
+\fBbool is_cleared(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_idcok(const WINDOW *win);\fR
+\fBbool is_idcok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_idlok(const WINDOW *win);\fR
+\fBbool is_idlok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_immedok(const WINDOW *win);\fR
+\fBbool is_immedok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_keypad(const WINDOW *win);\fR
+\fBbool is_keypad(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_leaveok(const WINDOW *win);\fR
+\fBbool is_leaveok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_nodelay(const WINDOW *win);\fR
+\fBbool is_nodelay(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_notimeout(const WINDOW *win);\fR
+\fBbool is_notimeout(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_pad(const WINDOW *win);\fR
+\fBbool is_pad(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_scrollok(const WINDOW *win);\fR
+\fBbool is_scrollok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_subwin(const WINDOW *win);\fR
+\fBbool is_subwin(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBbool is_syncok(const WINDOW *win);\fR
+\fBbool is_syncok(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBWINDOW * wgetparent(const WINDOW *win);\fR
+\fBWINDOW * wgetparent(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBint wgetdelay(const WINDOW *win);\fR
+\fBint wgetdelay(const WINDOW *\fP\fIwin\fP\fB);\fR
 .br
-\fBint wgetscrreg(const WINDOW *win, int *top, int *bottom);\fR
+\fBint wgetscrreg(const WINDOW *\fP\fIwin\fP\fB, int *\fP\fItop\fP\fB, int *\fP\fIbottom\fP\fB);\fR
 .br
 .SH DESCRIPTION
 This implementation provides functions which return properties

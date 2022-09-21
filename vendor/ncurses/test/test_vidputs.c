@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2013,2014 Free Software Foundation, Inc.                   *
+ * Copyright 2020,2021 Thomas E. Dickey                                     *
+ * Copyright 2013-2014,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -26,7 +27,7 @@
  * authorization.                                                           *
  ****************************************************************************/
 /*
- * $Id: test_vidputs.c,v 1.5 2014/07/19 23:09:58 tom Exp $
+ * $Id: test_vidputs.c,v 1.11 2021/04/25 00:10:43 tom Exp $
  *
  * Demonstrate the vidputs and vidattr functions.
  * Thomas Dickey - 2013/01/12
@@ -37,15 +38,13 @@
 
 #if HAVE_SETUPTERM && HAVE_VIDPUTS
 
-#define valid(s) ((s != 0) && s != (char *)-1)
-
 static FILE *my_fp;
 static bool p_opt = FALSE;
 
 static
 TPUTS_PROTO(outc, c)
 {
-    int rc = c;
+    int rc;
 
     rc = putc(c, my_fp);
     TPUTS_RETURN(rc);
@@ -54,7 +53,7 @@ TPUTS_PROTO(outc, c)
 static bool
 outs(const char *s)
 {
-    if (valid(s)) {
+    if (VALID_STRING(s)) {
 	tputs(s, 1, outc);
 	return TRUE;
     }
@@ -64,10 +63,12 @@ outs(const char *s)
 static void
 cleanup(void)
 {
-    outs(exit_attribute_mode);
-    if (!outs(orig_colors))
-	outs(orig_pair);
-    outs(cursor_normal);
+    if (cur_term != 0) {
+	outs(exit_attribute_mode);
+	if (!outs(orig_colors))
+	    outs(orig_pair);
+	outs(cursor_normal);
+    }
 }
 
 static void
@@ -101,6 +102,7 @@ usage(void)
 	,""
 	,"Options:"
 	,"  -e      use stderr (default stdout)"
+	,"  -n      do not initialize terminal"
 	,"  -p      use vidputs (default vidattr)"
     };
     unsigned n;
@@ -113,13 +115,17 @@ int
 main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
 {
     int ch;
+    bool no_init = FALSE;
 
     my_fp = stdout;
 
-    while ((ch = getopt(argc, argv, "ep")) != -1) {
+    while ((ch = getopt(argc, argv, "enp")) != -1) {
 	switch (ch) {
 	case 'e':
 	    my_fp = stderr;
+	    break;
+	case 'n':
+	    no_init = TRUE;
 	    break;
 	case 'p':
 	    p_opt = TRUE;
@@ -132,11 +138,16 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
     if (optind < argc)
 	usage();
 
-    setupterm((char *) 0, 1, (int *) 0);
+    if (no_init) {
+	START_TRACE();
+    } else {
+	setupterm((char *) 0, fileno(my_fp), (int *) 0);
+    }
     test_vidputs();
     cleanup();
     ExitProgram(EXIT_SUCCESS);
 }
+
 #else
 int
 main(int argc GCC_UNUSED,

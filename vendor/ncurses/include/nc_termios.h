@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2011,2014 Free Software Foundation, Inc.                   *
+ * Copyright 2018,2020 Thomas E. Dickey                                     *
+ * Copyright 2011-2014,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -30,10 +31,12 @@
  *  Author: Thomas E. Dickey                        2011                    *
  ****************************************************************************/
 
-/* $Id: nc_termios.h,v 1.3 2014/05/03 19:40:10 juergen Exp $ */
+/* $Id: nc_termios.h,v 1.8 2020/08/29 20:53:19 tom Exp $ */
 
 #ifndef NC_TERMIOS_included
 #define NC_TERMIOS_included 1
+
+#include <ncurses_cfg.h>
 
 #if HAVE_TERMIOS_H && HAVE_TCGETATTR
 
@@ -67,9 +70,13 @@
 #define tcflush(fd, arg) ioctl(fd, TCFLSH, arg)
 #endif
 
+#if defined(EXP_WIN32_DRIVER)
+#undef TERMIOS
+#endif
+
 #else /* !HAVE_TERMIO_H */
 
-#if __MINGW32__
+#if defined(_WIN32) && !defined(EXP_WIN32_DRIVER)
 
 /* lflag bits */
 #define ISIG	0x0001
@@ -153,7 +160,7 @@
 #undef  ttyname
 #define ttyname(fd) NULL
 
-#endif /* __MINGW32__ */
+#endif /* _WIN32 */
 #endif /* HAVE_TERMIO_H */
 
 #endif /* HAVE_TERMIOS_H */

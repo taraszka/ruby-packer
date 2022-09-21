@@ -1,4 +1,4 @@
-; $Id: mingw-ncurses.nsi,v 1.117 2015/08/06 23:13:39 tom Exp $
+; $Id: mingw-ncurses.nsi,v 1.486 2021/10/20 22:43:08 tom Exp $
 
 ; TODO add examples
 ; TODO bump ABI to 6
@@ -8,9 +8,9 @@
 !define EXENAME "ncurses.exe"
 
 !define VERSION_MAJOR "6"
-!define VERSION_MINOR "0"
-!define VERSION_YYYY  "2015"
-!define VERSION_MMDD  "0808"
+!define VERSION_MINOR "3"
+!define VERSION_YYYY  "2021"
+!define VERSION_MMDD  "1021"
 !define VERSION_PATCH ${VERSION_YYYY}${VERSION_MMDD}
 
 !define MY_ABI   "5"
@@ -32,7 +32,7 @@ CRCCheck on
 SetCompressor /SOLID lzma
 
 VIAddVersionKey ProductName "${SUBKEY}"
-VIAddVersionKey CompanyName "http://invisible-island.net"
+VIAddVersionKey CompanyName "https://invisible-island.net"
 VIAddVersionKey FileDescription "NCurses Installer (MinGW)"
 VIAddVersionKey FileVersion ${VERSION_FULL}
 VIAddVersionKey ProductVersion ${VERSION_FULL}

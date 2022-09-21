@@ -1,6 +1,7 @@
 // * this is for making emacs happy: -*-Mode: C++;-*-
 /****************************************************************************
- * Copyright (c) 1998-2007,2013 Free Software Foundation, Inc.              *
+ * Copyright 2019,2020 Thomas E. Dickey                                     *
+ * Copyright 1998-2007,2013 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -43,7 +44,7 @@
 #define CPP_HAS_TRY_CATCH 0
 #endif
 
-MODULE_ID("$Id: cursesmain.cc,v 1.15 2013/09/28 20:56:47 tom Exp $")
+MODULE_ID("$Id: cursesmain.cc,v 1.20 2020/07/18 19:57:11 anonymous.maarten Exp $")
 
 #if HAVE_LOCALE_H
 #include <locale.h>
@@ -59,7 +60,7 @@ MODULE_ID("$Id: cursesmain.cc,v 1.15 2013/09/28 20:56:47 tom Exp $")
  * You only have to instantiate a static NCursesApplication object in your
  * main application source file and link this module with your application.
  */
-int main(int argc, char* argv[])
+int NCURSES_CXX_MAIN_NAME(int argc, char* argv[])
 {
   setlocale(LC_ALL, "");
 
@@ -87,7 +88,7 @@ int main(int argc, char* argv[])
 #endif
 #if NO_LEAKS
     delete A;
-    _nc_free_and_exit(res);
+    exit_curses(res);
 #else
     return(res);
 #endif

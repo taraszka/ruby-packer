@@ -1,6 +1,7 @@
 // * This makes emacs happy -*-Mode: C++;-*-
 /****************************************************************************
- * Copyright (c) 1998-2011,2012 Free Software Foundation, Inc.              *
+ * Copyright 2018-2020,2021 Thomas E. Dickey                                *
+ * Copyright 1998-2012,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -31,7 +32,7 @@
  *   Author: Juergen Pfeifer, 1997                                          *
  ****************************************************************************/
 
-// $Id: etip.h.in,v 1.39 2012/12/29 21:50:44 tom Exp $
+// $Id: etip.h.in,v 1.48 2021/06/17 21:11:08 tom Exp $
 
 #ifndef NCURSES_ETIP_H_incl
 #define NCURSES_ETIP_H_incl 1
@@ -113,7 +114,7 @@
 #  include <generic.h>
 #endif
 
-#include <ncurses_dll.h>
+#include <curses.h>
 
 extern "C" {
 #if HAVE_VALUES_H
@@ -138,12 +139,16 @@ extern "C" {
 #define STATIC_CAST(s) (s)
 #endif
 
-// Forward Declarations
-class NCURSES_IMPEXP NCursesPanel;
-class NCURSES_IMPEXP NCursesMenu;
-class NCURSES_IMPEXP NCursesForm;
+#ifndef NCURSES_CXX_IMPEXP
+#define NCURSES_CXX_IMPEXP  /* nothing */
+#endif
 
-class NCURSES_IMPEXP NCursesException
+// Forward Declarations
+class NCURSES_CXX_IMPEXP NCursesPanel;
+class NCURSES_CXX_IMPEXP NCursesMenu;
+class NCURSES_CXX_IMPEXP NCursesForm;
+
+class NCURSES_CXX_IMPEXP NCursesException
 {
 public:
   const char *message;
@@ -153,12 +158,13 @@ public:
     : message(msg), errorno (err)
     {};
 
-  NCursesException (const char* msg)
+  explicit NCursesException (const char* msg)
     : message(msg), errorno (E_SYSTEM_ERROR)
     {};
 
   NCursesException& operator=(const NCursesException& rhs)
   {
+    message = rhs.message;
     errorno = rhs.errorno;
     return *this;
   }
@@ -177,7 +183,7 @@ public:
   }
 };
 
-class NCURSES_IMPEXP NCursesPanelException : public NCursesException
+class NCURSES_CXX_IMPEXP NCursesPanelException : public NCursesException
 {
 public:
   const NCursesPanel* p;
@@ -194,7 +200,7 @@ public:
     p (panel)
     {};
 
-  NCursesPanelException (int err) :
+  explicit NCursesPanelException (int err) :
     NCursesException ("panel library error", err),
     p (0)
     {};
@@ -228,7 +234,7 @@ public:
   }
 };
 
-class NCURSES_IMPEXP NCursesMenuException : public NCursesException
+class NCURSES_CXX_IMPEXP NCursesMenuException : public NCursesException
 {
 public:
   const NCursesMenu* m;
@@ -245,7 +251,7 @@ public:
     m (menu)
     {};
 
-  NCursesMenuException (int err) :
+  explicit NCursesMenuException (int err) :
     NCursesException ("menu library error", err),
     m (0)
     {};
@@ -279,7 +285,7 @@ public:
   }
 };
 
-class NCURSES_IMPEXP NCursesFormException : public NCursesException
+class NCURSES_CXX_IMPEXP NCursesFormException : public NCursesException
 {
 public:
   const NCursesForm* f;
@@ -296,7 +302,7 @@ public:
     f (form)
     {};
 
-  NCursesFormException (int err) :
+  explicit NCursesFormException (int err) :
     NCursesException ("form library error", err),
     f (0)
     {};
@@ -330,7 +336,7 @@ public:
   }
 };
 
-#if !((defined(__GNUG__) && defined(__EXCEPTIONS)) || defined(__SUNPRO_CC))
+#if !((defined(__GNUG__) && defined(__EXCEPTIONS) && (__GNUG__ < 7)) || defined(__SUNPRO_CC))
 #  if HAVE_IOSTREAM
 #     include <iostream>
 #     if IOSTREAM_NAMESPACE
@@ -340,22 +346,26 @@ using std::endl;
 #  else
 #     include <iostream.h>
 #  endif
-   extern "C" void exit(int);
 #endif
 
 inline void THROW(const NCursesException *e) {
 #if defined(__GNUG__) && defined(__EXCEPTIONS)
 #  if ((__GNUG__ <= 2) && (__GNUC_MINOR__ < 8))
       (*lib_error_handler)(e ? e->classname() : "", e ? e->message : "");
-#else
-#define CPP_HAS_TRY_CATCH 1
-#endif
+#  elif (__GNUG__ >= 7)
+     // g++ 7.0 warns about deprecation, but lacks the predefined symbols
+      ::endwin();
+      std::cerr << "Found a problem - goodbye" << std::endl;
+      exit(EXIT_FAILURE);
+#  else
+#    define CPP_HAS_TRY_CATCH 1
+#  endif
 #elif defined(__SUNPRO_CC)
 #  if !defined(__SUNPRO_CC_COMPAT) || (__SUNPRO_CC_COMPAT < 5)
   genericerror(1, ((e != 0) ? (char *)(e->message) : ""));
-#else
-#define CPP_HAS_TRY_CATCH 1
-#endif
+#  else
+#    define CPP_HAS_TRY_CATCH 1
+#  endif
 #else
   if (e)
     cerr << e->message << endl;
@@ -372,8 +382,14 @@ inline void THROW(const NCursesException *e) {
   throw *e;
 #define NCURSES_CPP_TRY		try
 #define NCURSES_CPP_CATCH(e)	catch(e)
+#if defined(__cpp_noexcept_function_type) && (__cpp_noexcept_function_type >= 201510)
+// C++17 deprecates the usage of throw().
+#define THROWS(s)		/* nothing */
+#define THROW2(s,t)		/* nothing */
+#else
 #define THROWS(s)		throw(s)
 #define THROW2(s,t)		throw(s,t)
+#endif
 #endif
 }
 

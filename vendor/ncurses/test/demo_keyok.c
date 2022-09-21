@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2002-2003,2006 Free Software Foundation, Inc.              *
+ * Copyright 2020 Thomas E. Dickey                                          *
+ * Copyright 2002-2006,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -26,7 +27,7 @@
  * authorization.                                                           *
  ****************************************************************************/
 /*
- * $Id: demo_keyok.c,v 1.5 2006/11/04 20:09:51 tom Exp $
+ * $Id: demo_keyok.c,v 1.7 2020/02/02 23:34:34 tom Exp $
  *
  * Demonstrate the keyok() function.
  * Thomas Dickey - 2002/11/23
@@ -39,6 +40,7 @@ int
 main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
 {
     int lastch = ERR;
+    int prior = ERR;
     int ch;
     WINDOW *win;
 
@@ -57,6 +59,9 @@ main(int argc GCC_UNUSED, char *argv[]GCC_UNUSED)
 
     while ((ch = wgetch(win)) != ERR) {
 	const char *name = keyname(ch);
+	if (ch == ESCAPE && prior == ch)
+	    break;
+	prior = ch;
 	wprintw(win, "Keycode %d, name %s\n",
 		ch,
 		name != 0 ? name : "<null>");

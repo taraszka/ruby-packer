@@ -1,5 +1,6 @@
 dnl***************************************************************************
-dnl Copyright (c) 2010-2014,2015 Free Software Foundation, Inc.              *
+dnl Copyright 2018-2020,2021 Thomas E. Dickey                                *
+dnl Copyright 2010-2016,2018 Free Software Foundation, Inc.                  *
 dnl                                                                          *
 dnl Permission is hereby granted, free of charge, to any person obtaining a  *
 dnl copy of this software and associated documentation files (the            *
@@ -28,18 +29,24 @@ dnl***************************************************************************
 dnl
 dnl Author: Thomas E. Dickey
 dnl
-dnl $Id: configure.in,v 1.60 2015/04/18 18:49:57 tom Exp $
+dnl $Id: configure.in,v 1.83 2021/07/03 20:23:24 tom Exp $
 dnl Process this file with autoconf to produce a configure script.
 dnl
-dnl See http://invisible-island.net/autoconf/ for additional information.
+dnl For additional information, see
+dnl     https://invisible-island.net/autoconf/
+dnl     https://invisible-island.net/autoconf/my-autoconf.html
 dnl
 dnl ---------------------------------------------------------------------------
-AC_PREREQ(2.52.20030208)
-AC_REVISION($Revision: 1.60 $)
+AC_PREREQ(2.52.20210509)
+AC_REVISION($Revision: 1.83 $)
 AC_INIT(gen/gen.c)
 AC_CONFIG_HEADER(include/ncurses_cfg.h:include/ncurses_cfg.hin)
 
+AC_DEFUN([AC_PATH_XTRA],[])dnl ignore dependencies on this
+
 CF_TOP_BUILDDIR
+
+CF_HELP_MESSAGE(General Options:)
 
 CF_WITH_SYSTYPE
 
@@ -53,7 +60,7 @@ CF_CFG_DEFAULTS
 CF_PROG_CC(gnatgcc gcc cc)
 AC_PROG_CPP
 AC_PROG_GCC_TRADITIONAL
-CF_PROG_CC_C_O(CC)
+CF_PROG_CC_C_O(CC,[$CFLAGS $CPPFLAGS])
 
 AC_ARG_PROGRAM
 
@@ -61,6 +68,9 @@ CF_PROG_AWK
 CF_PROG_EGREP
 AC_PROG_INSTALL
 CF_PROG_LN_S
+
+CF_PROG_INSTALL
+CF_INSTALL_OPTS
 
 AC_SYS_LONG_FILE_NAMES
 
@@ -92,6 +102,7 @@ fi
 
 # do this after mixed-case option (tags/TAGS is not as important as tic).
 AC_PROG_MAKE_SET
+CF_MAKE_PHONY
 CF_MAKE_TAGS
 CF_MAKEFLAGS
 
@@ -205,30 +216,10 @@ fi
 CF_HELP_MESSAGE(Fine-Tuning Your Configuration:)
 
 ###   use option --enable-broken-linker to force on use of broken-linker support
-AC_MSG_CHECKING(if you want broken-linker support code)
-AC_ARG_ENABLE(broken_linker,
-	[  --enable-broken_linker  compile with broken-linker support code],
-	[with_broken_linker=$enableval],
-	[with_broken_linker=${BROKEN_LINKER:-no}])
-AC_MSG_RESULT($with_broken_linker)
-
-BROKEN_LINKER=0
-if test "$with_broken_linker" = yes ; then
-	AC_DEFINE(BROKEN_LINKER)
-	BROKEN_LINKER=1
-elif test "$DFT_LWR_MODEL" = shared ; then
-	case $cf_cv_system_name in
-	(cygwin*)
-		AC_DEFINE(BROKEN_LINKER)
-		BROKEN_LINKER=1
-		CF_VERBOSE(cygwin linker is broken anyway)
-		;;
-	esac
-fi
-AC_SUBST(BROKEN_LINKER)
+CF_ENABLE_BROKEN_LINKER
 
 # Check to define _XOPEN_SOURCE "automatically"
-CF_XOPEN_SOURCE
+CF_XOPEN_SOURCE(600)
 
 CF_LARGEFILE
 
@@ -363,18 +354,10 @@ CF_HELP_MESSAGE(Testing/development Options:)
 ###	use option --disable-echo to suppress full display compiling commands
 CF_DISABLE_ECHO
 
-###	use option --enable-warnings to turn on all gcc warnings
-AC_MSG_CHECKING(if you want to see compiler warnings)
-AC_ARG_ENABLE(warnings,
-	[  --enable-warnings       build: turn on GCC compiler warnings],
-	[with_warnings=$enableval])
-AC_MSG_RESULT($with_warnings)
-
-if test "x$with_warnings" = "xyes"; then
+CF_ENABLE_WARNINGS(Wno-unknown-pragmas Wswitch-enum,yes)
+if test "x$enable_warnings" = "xyes"; then
  	CF_ADD_ADAFLAGS(-gnatg)
-	CF_GCC_WARNINGS(Wno-unknown-pragmas Wswitch-enum)
 fi
-CF_GCC_ATTRIBUTES
 
 ###	use option --enable-assertions to turn on generation of assertion code
 AC_MSG_CHECKING(if you want to enable runtime assertions)
@@ -448,6 +431,7 @@ AC_CHECK_LIB(bsd, gettimeofday,
 esac
 
 ###	Checks for header files.
+AC_CHECK_SIZEOF([signed char])
 AC_STDC_HEADERS
 AC_HEADER_DIRENT
 AC_HEADER_TIME
@@ -491,6 +475,9 @@ if test "$cf_with_ada" != "no" ; then
 		CF_WITH_ADA_INCLUDE
 		CF_WITH_ADA_OBJECTS
 		CF_WITH_ADA_SHAREDLIB
+
+		# allow the Ada binding to be renamed
+		CF_WITH_ADA_LIBNAME(AdaCurses)
 	else
 		AC_MSG_ERROR(No usable Ada compiler found)
 	fi
@@ -539,6 +526,12 @@ if test "$DFT_LWR_MODEL" = shared ; then
 	esac
 fi
 
+USE_ARG_SUFFIX=${DFT_ARG_SUFFIX}
+AC_SUBST(USE_ARG_SUFFIX)
+
+USE_LIB_SUFFIX=${DFT_ARG_SUFFIX}
+AC_SUBST(USE_LIB_SUFFIX)
+
 USE_CFG_SUFFIX=${DFT_ARG_SUFFIX}
 AC_SUBST(USE_CFG_SUFFIX)
 
@@ -548,9 +541,6 @@ AC_SUBST(USE_CFG_SUFFIX)
 SUB_MAKEFILES="gen/adacurses${USE_ARG_SUFFIX}-config:gen/adacurses-config.in"
 
 AC_DEFINE_UNQUOTED(NCURSES_PATHSEP,'$PATH_SEPARATOR',[Define to override ':' as the library path-separator])
-
-### Now that we're done running tests, add the compiler-warnings, if any
-CF_ADD_CFLAGS($EXTRA_CFLAGS)
 
 ################################################################################
 
@@ -584,8 +574,17 @@ AC_SUBST(EXTERNAL_TREE)
 ADAHTML_DIR=../doc/ada
 AC_SUBST(ADAHTML_DIR)
 
+if test "x$cross_compiling" = xyes ; then
+	ADAGEN_LDFLAGS='$(CROSS_LDFLAGS)'
+else
+	ADAGEN_LDFLAGS='$(NATIVE_LDFLAGS)'
+fi
+
+AC_SUBST(ADAGEN_LDFLAGS)
+
 AC_OUTPUT( \
 	$SUB_MAKEFILES \
+	src/library.gpr:src/library.gpr.in \
 	doc/adacurses${DFT_ARG_SUFFIX}-config.1:doc/MKada_config.in \
 	Makefile,[
 if test -z "$USE_OLD_MAKERULES" ; then
@@ -606,6 +605,8 @@ NCURSES_MAJOR="$NCURSES_MAJOR"
 NCURSES_MINOR="$NCURSES_MINOR"
 NCURSES_PATCH="$NCURSES_PATCH"
 USE_OLD_MAKERULES="$USE_OLD_MAKERULES"
+cf_cv_VERSION_GNATMAKE=$cf_cv_VERSION_GNATMAKE
+cf_cv_VERSION_GPRBUILD=$cf_cv_VERSION_GPRBUILD
 cf_cv_abi_version="$cf_cv_abi_version"
 cf_cv_rel_version="$cf_cv_rel_version"
 cf_cv_rm_so_locs="$cf_cv_rm_so_locs"

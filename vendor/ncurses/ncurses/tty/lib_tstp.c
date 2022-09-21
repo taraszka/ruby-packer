@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 1998-2013,2014 Free Software Foundation, Inc.              *
+ * Copyright 2020,2021 Thomas E. Dickey                                     *
+ * Copyright 1998-2014,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -42,7 +43,7 @@
 
 #include <SigAction.h>
 
-MODULE_ID("$Id: lib_tstp.c,v 1.48 2014/04/26 18:47:35 juergen Exp $")
+MODULE_ID("$Id: lib_tstp.c,v 1.51 2021/09/04 10:54:35 tom Exp $")
 
 #if defined(SIGTSTP) && (HAVE_SIGACTION || HAVE_SIGVEC)
 #define USE_SIGTSTP 1
@@ -129,7 +130,7 @@ signal_name(int sig)
  * (this may include XENIX).
  *
  * This implementation will probably be changed to use signal(3) in
- * the future.  If nothing else, it's simpler...
+ * the future.  If nothing else, it is simpler...
  */
 
 #if USE_SIGTSTP
@@ -155,8 +156,10 @@ handle_SIGTSTP(int dummy GCC_UNUSED)
      * taken ownership of the tty and modified the settings when our
      * parent was stopped before us, and we would likely pick up the
      * settings already modified by the shell.
+     *
+     * Don't do this if we're not in curses -
      */
-    if (sp != 0 && !sp->_endwin)	/* don't do this if we're not in curses */
+    if (sp != 0 && (sp->_endwin == ewRunning))
 #if HAVE_TCGETPGRP
 	if (tcgetpgrp(STDIN_FILENO) == getpgrp())
 #endif
@@ -273,7 +276,7 @@ handle_SIGINT(int sig)
 		set_term(scan);
 		NCURSES_SP_NAME(endwin) (NCURSES_SP_ARG);
 		if (sp)
-		    sp->_endwin = FALSE;	/* in case of reuse */
+		    sp->_endwin = ewInitial;	/* in case of reuse */
 	    }
 	}
     }

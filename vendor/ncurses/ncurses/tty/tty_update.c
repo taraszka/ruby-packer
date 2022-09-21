@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 1998-2013,2014 Free Software Foundation, Inc.              *
+ * Copyright 2018-2020,2021 Thomas E. Dickey                                *
+ * Copyright 1998-2016,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -43,6 +44,8 @@
  *
  *-----------------------------------------------------------------*/
 
+#define NEW_PAIR_INTERNAL 1
+
 #include <curses.priv.h>
 
 #ifndef CUR
@@ -82,7 +85,7 @@
 
 #include <ctype.h>
 
-MODULE_ID("$Id: tty_update.c,v 1.280 2014/08/23 19:25:18 tom Exp $")
+MODULE_ID("$Id: tty_update.c,v 1.312 2021/09/04 10:29:59 tom Exp $")
 
 /*
  * This define controls the line-breakout optimization.  Every once in a
@@ -114,14 +117,14 @@ static int ClrBottom(SCREEN *, int total);
 static void ClearScreen(SCREEN *, NCURSES_CH_T blank);
 static void ClrUpdate(SCREEN *);
 static void DelChar(SCREEN *, int count);
-static void InsStr(SCREEN *, NCURSES_CH_T * line, int count);
+static void InsStr(SCREEN *, NCURSES_CH_T *line, int count);
 static void TransformLine(SCREEN *, int const lineno);
 #else
 static int ClrBottom(int total);
 static void ClearScreen(NCURSES_CH_T blank);
 static void ClrUpdate(void);
 static void DelChar(int count);
-static void InsStr(NCURSES_CH_T * line, int count);
+static void InsStr(NCURSES_CH_T *line, int count);
 static void TransformLine(int const lineno);
 #endif
 
@@ -133,7 +136,7 @@ static void TransformLine(int const lineno);
  ****************************************************************************/
 
 static void
-position_check(NCURSES_SP_DCLx int expected_y, int expected_x, char *legend)
+position_check(NCURSES_SP_DCLx int expected_y, int expected_x, const char *legend)
 /* check to see if the real cursor position matches the virtual */
 {
     char buf[20];
@@ -167,9 +170,9 @@ position_check(NCURSES_SP_DCLx int expected_y, int expected_x, char *legend)
 	if (y - 1 != expected_y || x - 1 != expected_x) {
 	    NCURSES_SP_NAME(beep) (NCURSES_SP_ARG);
 	    NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				    tparm("\033[%d;%dH",
-					  expected_y + 1,
-					  expected_x + 1),
+				    TIPARM_2("\033[%d;%dH",
+					     expected_y + 1,
+					     expected_x + 1),
 				    1, NCURSES_SP_NAME(_nc_outch));
 	    _tracef("position seen (%d, %d) doesn't match expected one (%d, %d) in %s",
 		    y - 1, x - 1, expected_y, expected_x, legend);
@@ -207,6 +210,10 @@ GoTo(NCURSES_SP_DCLx int const row, int const col)
 		   SP_PARM->_curscol, "GoTo2");
 }
 
+#if !NCURSES_WCWIDTH_GRAPHICS
+#define is_wacs_value(ch) (_nc_wacs_width(ch) == 1 && wcwidth(ch) > 1)
+#endif /* !NCURSES_WCWIDTH_GRAPHICS */
+
 static NCURSES_INLINE void
 PutAttrChar(NCURSES_SP_DCLx CARG_CH_T ch)
 {
@@ -233,7 +240,7 @@ PutAttrChar(NCURSES_SP_DCLx CARG_CH_T ch)
      * Determine the number of character cells which the 'ch' value will use
      * on the screen.  It should be at least one.
      */
-    if ((chlen = wcwidth(CharOf(CHDEREF(ch)))) <= 0) {
+    if ((chlen = _nc_wacs_width(CharOf(CHDEREF(ch)))) <= 0) {
 	static const NCURSES_CH_T blank = NewChar(BLANK_TEXT);
 
 	/*
@@ -268,8 +275,14 @@ PutAttrChar(NCURSES_SP_DCLx CARG_CH_T ch)
 
     if ((AttrOf(attr) & A_ALTCHARSET)
 	&& SP_PARM->_acs_map != 0
-	&& CharOfD(ch) < ACS_LEN) {
+	&& ((CharOfD(ch) < ACS_LEN)
+#if !NCURSES_WCWIDTH_GRAPHICS
+	    || is_wacs_value(CharOfD(ch))
+#endif
+	)) {
+	int c8;
 	my_ch = CHDEREF(ch);	/* work around const param */
+	c8 = CharOf(my_ch);
 #if USE_WIDEC_SUPPORT
 	/*
 	 * This is crude & ugly, but works most of the time.  It checks if the
@@ -277,17 +290,39 @@ PutAttrChar(NCURSES_SP_DCLx CARG_CH_T ch)
 	 * character, and uses the wide-character mapping when we expect the
 	 * normal one to be broken (by mis-design ;-).
 	 */
-	if (SP_PARM->_screen_acs_fix
-	    && SP_PARM->_screen_acs_map[CharOf(my_ch)]) {
-	    RemAttr(attr, A_ALTCHARSET);
-	    my_ch = _nc_wacs[CharOf(my_ch)];
-	} else if (SP_PARM->_screen_unicode
-		   && !SP_PARM->_screen_acs_map[CharOf(my_ch)]
-		   && _nc_wacs[CharOf(my_ch)].chars[0]) {
-	    RemAttr(attr, A_ALTCHARSET);
-	    my_ch = _nc_wacs[CharOf(my_ch)];
-	}
+	if (SP_PARM->_screen_unicode
+	    && _nc_wacs[CharOf(my_ch)].chars[0]) {
+	    if (SP_PARM->_screen_acs_map[CharOf(my_ch)]) {
+		if (SP_PARM->_screen_acs_fix) {
+		    RemAttr(attr, A_ALTCHARSET);
+		    my_ch = _nc_wacs[CharOf(my_ch)];
+		}
+	    } else {
+		RemAttr(attr, A_ALTCHARSET);
+		my_ch = _nc_wacs[CharOf(my_ch)];
+	    }
+#if !NCURSES_WCWIDTH_GRAPHICS
+	    if (!(AttrOf(attr) & A_ALTCHARSET)) {
+		chlen = 1;
+	    }
+#endif /* !NCURSES_WCWIDTH_GRAPHICS */
+	} else
 #endif
+	if (!SP_PARM->_screen_acs_map[c8]) {
+	    /*
+	     * If we found no mapping for a given alternate-character set item
+	     * in the terminal description, attempt to use the ASCII fallback
+	     * code which is populated in the _acs_map[] array.  If that did
+	     * not correspond to a line-drawing, etc., graphics character, the
+	     * array entry would be empty.
+	     */
+	    chtype temp = UChar(SP_PARM->_acs_map[c8]);
+	    if (temp) {
+		RemAttr(attr, A_ALTCHARSET);
+		SetChar(my_ch, temp, AttrOf(attr));
+	    }
+	}
+
 	/*
 	 * If we (still) have alternate character set, it is the normal 8bit
 	 * flavor.  The _screen_acs_map[] array tells if the character was
@@ -307,6 +342,11 @@ PutAttrChar(NCURSES_SP_DCLx CARG_CH_T ch)
 	}
 	ch = CHREF(my_ch);
     }
+#if USE_WIDEC_SUPPORT && !NCURSES_WCWIDTH_GRAPHICS
+    else if (chlen > 1 && is_wacs_value(CharOfD(ch))) {
+	chlen = 1;
+    }
+#endif
     if (tilde_glitch && (CharOfD(ch) == L('~'))) {
 	SetChar(tilde, L('`'), AttrOf(attr));
 	ch = CHREF(tilde);
@@ -389,11 +429,12 @@ PutCharLR(NCURSES_SP_DCLx const ARG_CH_T ch)
 	/* we can put the char directly */
 	PutAttrChar(NCURSES_SP_ARGx ch);
     } else if (enter_am_mode && exit_am_mode) {
+	int oldcol = SP_PARM->_curscol;
 	/* we can suppress automargin */
 	NCURSES_PUTP2("exit_am_mode", exit_am_mode);
 
 	PutAttrChar(NCURSES_SP_ARGx ch);
-	SP_PARM->_curscol--;
+	SP_PARM->_curscol = oldcol;
 	position_check(NCURSES_SP_ARGx
 		       SP_PARM->_cursrow,
 		       SP_PARM->_curscol,
@@ -432,7 +473,7 @@ wrap_cursor(NCURSES_SP_DCL0)
 	 * An aggressive way to handle this would be to emit CR/LF after the
 	 * char and then assume the wrap is done, you're on the first position
 	 * of the next line, and the terminal out of its weird state.  Here
-	 * it's safe to just tell the code that the cursor is in hyperspace and
+	 * it is safe to just tell the code that the cursor is in hyperspace and
 	 * let the next mvcur() call straighten things out.
 	 */
 	SP_PARM->_curscol = -1;
@@ -448,7 +489,7 @@ wrap_cursor(NCURSES_SP_DCL0)
 	    TR(TRACE_CHARPUT, ("turning off (%#lx) %s before wrapping",
 			       (unsigned long) AttrOf(SCREEN_ATTRS(SP_PARM)),
 			       _traceattr(AttrOf(SCREEN_ATTRS(SP_PARM)))));
-	    (void) VIDATTR(SP_PARM, A_NORMAL, 0);
+	    VIDPUTS(SP_PARM, A_NORMAL, 0);
 	}
     } else {
 	SP_PARM->_curscol--;
@@ -493,14 +534,15 @@ can_clear_with(NCURSES_SP_DCLx ARG_CH_T ch)
 
 	if (!SP_PARM->_default_color)
 	    return FALSE;
-	if (SP_PARM->_default_fg != C_MASK || SP_PARM->_default_bg != C_MASK)
+	if (!(isDefaultColor(SP_PARM->_default_fg) &&
+	      isDefaultColor(SP_PARM->_default_bg)))
 	    return FALSE;
 	if ((pair = GetPair(CHDEREF(ch))) != 0) {
 	    NCURSES_COLOR_T fg, bg;
 	    if (NCURSES_SP_NAME(pair_content) (NCURSES_SP_ARGx
 					       (short) pair,
 					       &fg, &bg) == ERR
-		|| (fg != C_MASK || bg != C_MASK)) {
+		|| !(isDefaultColor(fg) && isDefaultColor(bg))) {
 		return FALSE;
 	    }
 	}
@@ -526,7 +568,7 @@ can_clear_with(NCURSES_SP_DCLx ARG_CH_T ch)
  * This code is optimized using ech and rep.
  */
 static int
-EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T * ntext, int num)
+EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T *ntext, int num)
 {
     int i;
 
@@ -564,7 +606,7 @@ EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T * ntext, int num)
 		&& runcount > SP_PARM->_ech_cost + SP_PARM->_cup_ch_cost
 		&& can_clear_with(NCURSES_SP_ARGx CHREF(ntext0))) {
 		UpdateAttrs(SP_PARM, ntext0);
-		NCURSES_PUTP2("erase_chars", TPARM_1(erase_chars, runcount));
+		NCURSES_PUTP2("erase_chars", TIPARM_1(erase_chars, runcount));
 
 		/*
 		 * If this is the last part of the given interval,
@@ -578,7 +620,18 @@ EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T * ntext, int num)
 		} else {
 		    return 1;	/* cursor stays in the middle */
 		}
-	    } else if (repeat_char && runcount > SP_PARM->_rep_cost) {
+	    } else if (repeat_char != 0 &&
+#if BSD_TPUTS
+		       !isdigit(UChar(CharOf(ntext0))) &&
+#endif
+#if USE_WIDEC_SUPPORT
+		       (!SP_PARM->_screen_unicode &&
+			(CharOf(ntext0) < ((AttrOf(ntext0) & A_ALTCHARSET)
+					   ? ACS_LEN
+					   : 256))) &&
+#endif
+		       runcount > SP_PARM->_rep_cost) {
+		NCURSES_CH_T temp;
 		bool wrap_possible = (SP_PARM->_curscol + runcount >=
 				      screen_columns(SP_PARM));
 		int rep_count = runcount;
@@ -587,11 +640,19 @@ EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T * ntext, int num)
 		    rep_count--;
 
 		UpdateAttrs(SP_PARM, ntext0);
+		temp = ntext0;
+		if ((AttrOf(temp) & A_ALTCHARSET) &&
+		    SP_PARM->_acs_map != 0 &&
+		    (SP_PARM->_acs_map[CharOf(temp)] & A_CHARTEXT) != 0) {
+		    SetChar(temp,
+			    (SP_PARM->_acs_map[CharOf(ntext0)] & A_CHARTEXT),
+			    AttrOf(ntext0) | A_ALTCHARSET);
+		}
 		NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-					TPARM_2(repeat_char,
-						CharOf(ntext0),
-						rep_count),
-					rep_count,
+					TIPARM_2(repeat_char,
+						 CharOf(temp),
+						 rep_count),
+					1,
 					NCURSES_SP_NAME(_nc_outch));
 		SP_PARM->_curscol += rep_count;
 
@@ -622,12 +683,11 @@ EmitRange(NCURSES_SP_DCLx const NCURSES_CH_T * ntext, int num)
  */
 static int
 PutRange(NCURSES_SP_DCLx
-	 const NCURSES_CH_T * otext,
-	 const NCURSES_CH_T * ntext,
+	 const NCURSES_CH_T *otext,
+	 const NCURSES_CH_T *ntext,
 	 int row,
 	 int first, int last)
 {
-    int i, j, same;
     int rc;
 
     TR(TRACE_CHARPUT, ("PutRange(%p, %p, %p, %d, %d, %d)",
@@ -638,6 +698,8 @@ PutRange(NCURSES_SP_DCLx
 
     if (otext != ntext
 	&& (last - first + 1) > SP_PARM->_inline_cost) {
+	int i, j, same;
+
 	for (j = first, same = 0; j <= last; j++) {
 	    if (!same && isWidecExt(otext[j]))
 		continue;
@@ -680,9 +742,12 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 
     T((T_CALLED("_nc_tinfo:doupdate(%p)"), (void *) SP_PARM));
 
-    if (SP_PARM == 0)
-	returnCode(ERR);
+    _nc_lock_global(update);
 
+    if (SP_PARM == 0) {
+	_nc_unlock_global(update);
+	returnCode(ERR);
+    }
 #if !USE_REENTRANT
     /*
      * It is "legal" but unlikely that an application could assign a new
@@ -703,9 +768,10 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 
     if (CurScreen(SP_PARM) == 0
 	|| NewScreen(SP_PARM) == 0
-	|| StdScreen(SP_PARM) == 0)
+	|| StdScreen(SP_PARM) == 0) {
+	_nc_unlock_global(update);
 	returnCode(ERR);
-
+    }
 #ifdef TRACE
     if (USE_TRACEF(TRACE_UPDATE)) {
 	if (CurScreen(SP_PARM)->_clear)
@@ -723,7 +789,8 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 	SP_PARM->_fifohold--;
 
 #if USE_SIZECHANGE
-    if (SP_PARM->_endwin || _nc_handle_sigwinch(SP_PARM)) {
+    if ((SP_PARM->_endwin == ewSuspend)
+	|| _nc_handle_sigwinch(SP_PARM)) {
 	/*
 	 * This is a transparent extension:  XSI does not address it,
 	 * and applications need not know that ncurses can do it.
@@ -736,7 +803,7 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
     }
 #endif
 
-    if (SP_PARM->_endwin) {
+    if (SP_PARM->_endwin == ewSuspend) {
 
 	T(("coming back from shell mode"));
 	NCURSES_SP_NAME(reset_prog_mode) (NCURSES_SP_ARG);
@@ -745,7 +812,7 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 	NCURSES_SP_NAME(_nc_screen_resume) (NCURSES_SP_ARG);
 	SP_PARM->_mouse_resume(SP_PARM);
 
-	SP_PARM->_endwin = FALSE;
+	SP_PARM->_endwin = ewRunning;
     }
 #if USE_TRACE_TIMES
     /* zero the metering machinery */
@@ -756,7 +823,7 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
     /*
      * This is the support for magic-cookie terminals.  The theory:  we scan
      * the virtual screen looking for attribute turnons.  Where we find one,
-     * check to make sure it's realizable by seeing if the required number of
+     * check to make sure it is realizable by seeing if the required number of
      * un-attributed blanks are present before and after the attributed range;
      * try to shift the range boundaries over blanks (not changing the screen
      * display) so this becomes true.  If it is, shift the beginning attribute
@@ -818,7 +885,7 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 		    bool end_onscreen = FALSE;
 		    int m, n = j;
 
-		    /* find end of span, if it's onscreen */
+		    /* find end of span, if it is onscreen */
 		    for (m = i; m < screen_lines(SP_PARM); m++) {
 			for (; n < screen_columns(SP_PARM); n++) {
 			    attr_t testattr =
@@ -1013,6 +1080,7 @@ TINFO_DOUPDATE(NCURSES_SP_DCL0)
 
     _nc_signal_handler(TRUE);
 
+    _nc_unlock_global(update);
     returnCode(OK);
 }
 
@@ -1084,10 +1152,10 @@ ClrUpdate(NCURSES_SP_DCL0)
 static void
 ClrToEOL(NCURSES_SP_DCLx NCURSES_CH_T blank, int needclear)
 {
-    int j;
-
     if (CurScreen(SP_PARM) != 0
 	&& SP_PARM->_cursrow >= 0) {
+	int j;
+
 	for (j = SP_PARM->_curscol; j < screen_columns(SP_PARM); j++) {
 	    if (j >= 0) {
 		NCURSES_CH_T *cp =
@@ -1158,16 +1226,17 @@ ClrToEOS(NCURSES_SP_DCLx NCURSES_CH_T blank)
 static int
 ClrBottom(NCURSES_SP_DCLx int total)
 {
-    int row;
-    int col;
     int top = total;
     int last = min(screen_columns(SP_PARM), NewScreen(SP_PARM)->_maxx + 1);
     NCURSES_CH_T blank = NewScreen(SP_PARM)->_line[total - 1].text[last - 1];
-    bool ok;
 
     if (clr_eos && can_clear_with(NCURSES_SP_ARGx CHREF(blank))) {
+	int row;
 
 	for (row = total - 1; row >= 0; row--) {
+	    int col;
+	    bool ok;
+
 	    for (col = 0, ok = TRUE; ok && col < last; col++) {
 		ok = (CharEq(NewScreen(SP_PARM)->_line[row].text[col], blank));
 	    }
@@ -1256,10 +1325,10 @@ TransformLine(NCURSES_SP_DCLx int const lineno)
 		newPair = GetPair(newLine[n]);
 		if (oldPair != newPair
 		    && unColor(oldLine[n]) == unColor(newLine[n])) {
-		    if (oldPair < SP_PARM->_pair_limit
-			&& newPair < SP_PARM->_pair_limit
-			&& (SP_PARM->_color_pairs[oldPair] ==
-			    SP_PARM->_color_pairs[newPair])) {
+		    if (oldPair < SP_PARM->_pair_alloc
+			&& newPair < SP_PARM->_pair_alloc
+			&& (isSamePair(SP_PARM->_color_pairs[oldPair],
+				       SP_PARM->_color_pairs[newPair]))) {
 			SetPair(oldLine[n], GetPair(newLine[n]));
 		    }
 		}
@@ -1636,7 +1705,7 @@ ClearScreen(NCURSES_SP_DCLx NCURSES_CH_T blank)
 */
 
 static void
-InsStr(NCURSES_SP_DCLx NCURSES_CH_T * line, int count)
+InsStr(NCURSES_SP_DCLx NCURSES_CH_T *line, int count)
 {
     TR(TRACE_UPDATE, ("InsStr(%p, %p,%d) called",
 		      (void *) SP_PARM,
@@ -1648,17 +1717,17 @@ InsStr(NCURSES_SP_DCLx NCURSES_CH_T * line, int count)
     if (parm_ich) {
 	TPUTS_TRACE("parm_ich");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_1(parm_ich, count),
-				count,
+				TIPARM_1(parm_ich, count),
+				1,
 				NCURSES_SP_NAME(_nc_outch));
-	while (count) {
+	while (count > 0) {
 	    PutAttrChar(NCURSES_SP_ARGx CHREF(*line));
 	    line++;
 	    count--;
 	}
     } else if (enter_insert_mode && exit_insert_mode) {
 	NCURSES_PUTP2("enter_insert_mode", enter_insert_mode);
-	while (count) {
+	while (count > 0) {
 	    PutAttrChar(NCURSES_SP_ARGx CHREF(*line));
 	    if (insert_padding) {
 		NCURSES_PUTP2("insert_padding", insert_padding);
@@ -1668,7 +1737,7 @@ InsStr(NCURSES_SP_DCLx NCURSES_CH_T * line, int count)
 	}
 	NCURSES_PUTP2("exit_insert_mode", exit_insert_mode);
     } else {
-	while (count) {
+	while (count > 0) {
 	    NCURSES_PUTP2("insert_character", insert_character);
 	    PutAttrChar(NCURSES_SP_ARGx CHREF(*line));
 	    if (insert_padding) {
@@ -1693,8 +1762,6 @@ InsStr(NCURSES_SP_DCLx NCURSES_CH_T * line, int count)
 static void
 DelChar(NCURSES_SP_DCLx int count)
 {
-    int n;
-
     TR(TRACE_UPDATE, ("DelChar(%p, %d) called, position = (%ld,%ld)",
 		      (void *) SP_PARM, count,
 		      (long) NewScreen(SP_PARM)->_cury,
@@ -1703,10 +1770,12 @@ DelChar(NCURSES_SP_DCLx int count)
     if (parm_dch) {
 	TPUTS_TRACE("parm_dch");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_1(parm_dch, count),
-				count,
+				TIPARM_1(parm_dch, count),
+				1,
 				NCURSES_SP_NAME(_nc_outch));
     } else {
+	int n;
+
 	for (n = 0; n < count; n++) {
 	    NCURSES_PUTP2("delete_character", delete_character);
 	}
@@ -1770,7 +1839,7 @@ scroll_csr_forward(NCURSES_SP_DCLx
 	UpdateAttrs(SP_PARM, blank);
 	TPUTS_TRACE("parm_index");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_index, n, 0),
+				TIPARM_1(parm_index, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else if (parm_delete_line && bot == maxy) {
@@ -1778,7 +1847,7 @@ scroll_csr_forward(NCURSES_SP_DCLx
 	UpdateAttrs(SP_PARM, blank);
 	TPUTS_TRACE("parm_delete_line");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_delete_line, n, 0),
+				TIPARM_1(parm_delete_line, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else if (scroll_forward && top == miny && bot == maxy) {
@@ -1835,7 +1904,7 @@ scroll_csr_backward(NCURSES_SP_DCLx
 	UpdateAttrs(SP_PARM, blank);
 	TPUTS_TRACE("parm_rindex");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_rindex, n, 0),
+				TIPARM_1(parm_rindex, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else if (parm_insert_line && bot == maxy) {
@@ -1843,7 +1912,7 @@ scroll_csr_backward(NCURSES_SP_DCLx
 	UpdateAttrs(SP_PARM, blank);
 	TPUTS_TRACE("parm_insert_line");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_insert_line, n, 0),
+				TIPARM_1(parm_insert_line, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else if (scroll_reverse && top == miny && bot == maxy) {
@@ -1891,7 +1960,7 @@ scroll_idl(NCURSES_SP_DCLx int n, int del, int ins, NCURSES_CH_T blank)
     } else if (parm_delete_line) {
 	TPUTS_TRACE("parm_delete_line");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_delete_line, n, 0),
+				TIPARM_1(parm_delete_line, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else {			/* if (delete_line) */
@@ -1907,7 +1976,7 @@ scroll_idl(NCURSES_SP_DCLx int n, int del, int ins, NCURSES_CH_T blank)
     } else if (parm_insert_line) {
 	TPUTS_TRACE("parm_insert_line");
 	NCURSES_SP_NAME(tputs) (NCURSES_SP_ARGx
-				TPARM_2(parm_insert_line, n, 0),
+				TIPARM_1(parm_insert_line, n),
 				n,
 				NCURSES_SP_NAME(_nc_outch));
     } else {			/* if (insert_line) */
@@ -1972,7 +2041,7 @@ NCURSES_SP_NAME(_nc_scrolln) (NCURSES_SP_DCLx
 		NCURSES_PUTP2("save_cursor", save_cursor);
 	    }
 	    NCURSES_PUTP2("change_scroll_region",
-			  TPARM_2(change_scroll_region, top, bot));
+			  TIPARM_2(change_scroll_region, top, bot));
 	    if (cursor_saved) {
 		NCURSES_PUTP2("restore_cursor", restore_cursor);
 	    } else {
@@ -1982,7 +2051,7 @@ NCURSES_SP_NAME(_nc_scrolln) (NCURSES_SP_DCLx
 	    res = scroll_csr_forward(NCURSES_SP_ARGx n, top, bot, top, bot, blank);
 
 	    NCURSES_PUTP2("change_scroll_region",
-			  TPARM_2(change_scroll_region, 0, maxy));
+			  TIPARM_2(change_scroll_region, 0, maxy));
 	    SP_PARM->_cursrow = SP_PARM->_curscol = -1;
 	}
 
@@ -2018,7 +2087,7 @@ NCURSES_SP_NAME(_nc_scrolln) (NCURSES_SP_DCLx
 		NCURSES_PUTP2("save_cursor", save_cursor);
 	    }
 	    NCURSES_PUTP2("change_scroll_region",
-			  TPARM_2(change_scroll_region, top, bot));
+			  TIPARM_2(change_scroll_region, top, bot));
 	    if (cursor_saved) {
 		NCURSES_PUTP2("restore_cursor", restore_cursor);
 	    } else {
@@ -2029,7 +2098,7 @@ NCURSES_SP_NAME(_nc_scrolln) (NCURSES_SP_DCLx
 				      -n, top, bot, top, bot, blank);
 
 	    NCURSES_PUTP2("change_scroll_region",
-			  TPARM_2(change_scroll_region, 0, maxy));
+			  TIPARM_2(change_scroll_region, 0, maxy));
 	    SP_PARM->_cursrow = SP_PARM->_curscol = -1;
 	}
 
@@ -2085,16 +2154,16 @@ NCURSES_SP_NAME(_nc_screen_resume) (NCURSES_SP_DCL0)
 	NCURSES_SP_NAME(_nc_reset_colors) (NCURSES_SP_ARG);
 
     /* restore user-defined colors, if any */
-    if (SP_PARM->_color_defs < 0) {
+    if (SP_PARM->_color_defs < 0 && !SP_PARM->_direct_color.value) {
 	int n;
 	SP_PARM->_color_defs = -(SP_PARM->_color_defs);
 	for (n = 0; n < SP_PARM->_color_defs; ++n) {
 	    if (SP_PARM->_color_table[n].init) {
-		NCURSES_SP_NAME(init_color) (NCURSES_SP_ARGx
-					     (short) n,
-					     SP_PARM->_color_table[n].r,
-					     SP_PARM->_color_table[n].g,
-					     SP_PARM->_color_table[n].b);
+		_nc_init_color(SP_PARM,
+			       n,
+			       SP_PARM->_color_table[n].r,
+			       SP_PARM->_color_table[n].g,
+			       SP_PARM->_color_table[n].b);
 	    }
 	}
     }

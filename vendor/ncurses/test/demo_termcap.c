@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2005-2014,2015 Free Software Foundation, Inc.              *
+ * Copyright 2019-2020,2021 Thomas E. Dickey                                *
+ * Copyright 2005-2016,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -29,7 +30,7 @@
 /*
  * Author: Thomas E. Dickey
  *
- * $Id: demo_termcap.c,v 1.48 2015/08/08 20:25:39 tom Exp $
+ * $Id: demo_termcap.c,v 1.60 2021/03/20 16:05:49 tom Exp $
  *
  * A simple demo of the termcap interface.
  */
@@ -46,9 +47,15 @@
 #endif
 #endif
 
-#ifdef NCURSES_VERSION
+#if defined(NCURSES_VERSION)
+#if HAVE_NCURSES_TERMCAP_H
+#include <ncurses/termcap.h>
+#elif HAVE_TERMCAP_H
 #include <termcap.h>
 #endif
+#endif
+
+static GCC_NORETURN void failed(const char *);
 
 static void
 failed(const char *msg)
@@ -72,8 +79,10 @@ static bool b_opt = FALSE;
 static bool n_opt = FALSE;
 static bool s_opt = FALSE;
 static bool q_opt = FALSE;
+#ifdef NCURSES_VERSION
 static bool x_opt = FALSE;
 static bool y_opt = FALSE;
+#endif
 
 static char *d_opt;
 static char *e_opt;
@@ -98,8 +107,9 @@ static long total_s_values;
 static char *
 make_dbitem(char *p, char *q)
 {
-    char *result = malloc(strlen(e_opt) + 2 + (size_t) (p - q));
-    sprintf(result, "%s=%.*s", e_opt, (int) (p - q), q);
+    size_t need = strlen(e_opt) + 2 + (size_t) (p - q);
+    char *result = malloc(need);
+    _nc_SPRINTF(result, _nc_SLIMIT(need) "%s=%.*s", e_opt, (int) (p - q), q);
     return result;
 }
 
@@ -150,10 +160,12 @@ next_dbitem(void)
 	    db_item++;
 	}
     }
-    printf("** %s\n", result);
+    if (result != 0)
+	printf("** %s\n", result);
     return result;
 }
 
+#if NO_LEAKS
 static void
 free_dblist(void)
 {
@@ -165,6 +177,7 @@ free_dblist(void)
 	db_list = 0;
     }
 }
+#endif /* NO_LEAKS */
 
 static void
 show_string(const char *name, const char *value)
@@ -316,8 +329,6 @@ dump_xname(NCURSES_CONST char *cap)
 static void
 demo_termcap(NCURSES_CONST char *name)
 {
-    unsigned n;
-    NCURSES_CONST char *cap;
     char buffer[1024];
 
     if (db_list) {
@@ -326,6 +337,8 @@ demo_termcap(NCURSES_CONST char *name)
     if (!q_opt)
 	printf("Terminal type \"%s\"\n", name);
     if (tgetent(buffer, name) >= 0) {
+	NCURSES_CONST char *cap;
+	unsigned n;
 
 	if (b_opt) {
 	    for (n = 0;; ++n) {
@@ -356,7 +369,7 @@ demo_termcap(NCURSES_CONST char *name)
 #ifdef NCURSES_VERSION
 	if (x_opt && (my_blob == 0) && y_opt) {
 #if NCURSES_XNAMES
-	    TERMTYPE *term = &(cur_term->type);
+	    TERMTYPE *term = (TERMTYPE *) cur_term;
 	    if (term != 0
 		&& ((NUM_BOOLEANS(term) != BOOLCOUNT)
 		    || (NUM_NUMBERS(term) != NUMCOUNT)
@@ -687,7 +700,6 @@ copy_code_list(NCURSES_CONST char *const *list)
     size_t count;
     size_t length = 1;
     char **result = 0;
-    char *blob = 0;
     char *unused = 0;
 
     for (pass = 0; pass < 2; ++pass) {
@@ -697,12 +709,12 @@ copy_code_list(NCURSES_CONST char *const *list)
 		length += chunk;
 	    } else {
 		result[count] = unused;
-		strcpy(unused, list[count]);
+		_nc_STRCPY(unused, list[count], length);
 		unused += chunk;
 	    }
 	}
 	if (pass == 0) {
-	    blob = malloc(length);
+	    char *blob = malloc(length);
 	    result = typeCalloc(char *, count + 1);
 	    unused = blob;
 	    if (blob == 0 || result == 0)
@@ -712,7 +724,18 @@ copy_code_list(NCURSES_CONST char *const *list)
 
     return result;
 }
-#endif
+
+#if NO_LEAKS
+static void
+free_code_list(char **list)
+{
+    if (list) {
+	free(list[0]);
+	free(list);
+    }
+}
+#endif /* NO_LEAKS */
+#endif /* USE_CODE_LISTS */
 
 static void
 usage(void)
@@ -752,7 +775,9 @@ main(int argc, char *argv[])
     int n;
     char *name;
     bool a_opt = FALSE;
+#if defined(NCURSES_VERSION) || defined(HAVE_CURSES_DATA_OSPEED)
     bool v_opt = FALSE;
+#endif
     char *input_name = 0;
 
     int repeat;
@@ -788,9 +813,12 @@ main(int argc, char *argv[])
 	case 's':
 	    s_opt = TRUE;
 	    break;
+#if defined(NCURSES_VERSION) || defined(HAVE_CURSES_DATA_OSPEED)
 	case 'v':
 	    v_opt = TRUE;
 	    break;
+#endif
+#ifdef NCURSES_VERSION
 #if NCURSES_XNAMES
 	case 'x':
 	    x_opt = TRUE;
@@ -799,6 +827,7 @@ main(int argc, char *argv[])
 	    y_opt = TRUE;
 	    x_opt = TRUE;
 	    break;
+#endif
 #endif
 	default:
 	    usage();
@@ -868,11 +897,18 @@ main(int argc, char *argv[])
 	show_number("PC", PC);
 	show_string("UP", UP);
 	show_string("BC", BC);
-	show_number("ospeed", ospeed);
+	show_number("ospeed", (int) ospeed);
     }
 #endif
 
+#if NO_LEAKS
     free_dblist();
+#if USE_CODE_LISTS
+    free_code_list(my_boolcodes);
+    free_code_list(my_numcodes);
+    free_code_list(my_strcodes);
+#endif
+#endif /* NO_LEAKS */
 
     ExitProgram(EXIT_SUCCESS);
 }

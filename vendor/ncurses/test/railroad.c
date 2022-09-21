@@ -1,5 +1,6 @@
 /****************************************************************************
- * Copyright (c) 2000-2011,2013 Free Software Foundation, Inc.              *
+ * Copyright 2019,2020 Thomas E. Dickey                                     *
+ * Copyright 2000-2013,2017 Free Software Foundation, Inc.                  *
  *                                                                          *
  * Permission is hereby granted, free of charge, to any person obtaining a  *
  * copy of this software and associated documentation files (the            *
@@ -29,7 +30,7 @@
 /*
  * Author: Thomas E. Dickey - 2000
  *
- * $Id: railroad.c,v 1.21 2013/09/28 22:02:17 tom Exp $
+ * $Id: railroad.c,v 1.25 2020/09/05 21:43:37 tom Exp $
  *
  * A simple demo of the termcap interface.
  */
@@ -113,7 +114,7 @@ static void
 ShowSign(char *string)
 {
     char *base = string;
-    int ch, first, last;
+    int first, last;
 
     if (moveit != 0) {
 	tputs(tgoto(moveit, 0, height - 1), 1, outc);
@@ -121,7 +122,7 @@ ShowSign(char *string)
     }
 
     while (*string != 0) {
-	ch = *string;
+	int ch = *string;
 	if (ch != ' ') {
 	    if (moveit != 0) {
 		for (first = length - 2; first >= (string - base); first--) {
@@ -187,10 +188,17 @@ railroad(char **args)
     NCURSES_CONST char *name = getenv("TERM");
     char buffer[1024];
     char area[1024], *ap = area;
+    int z;
 
     if (name == 0)
+#ifdef EXP_WIN32_DRIVER
+	name = "ms-terminal";
+#else
 	name = "dumb";
-    if (tgetent(buffer, name) >= 0) {
+#endif
+
+    InitAndCatch(z = tgetent(buffer, name), onsig);
+    if (z >= 0) {
 
 	wipeit = tgetstr("ce", &ap);
 	height = tgetnum("li");
@@ -219,8 +227,6 @@ railroad(char **args)
 	finisC = tgetstr("vi", &ap);
 
 	MyShowCursor(0);
-
-	CATCHALL(onsig);
 
 	while (*args) {
 	    ShowSign(*args++);

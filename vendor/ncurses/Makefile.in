@@ -1,6 +1,7 @@
-# $Id: Makefile.in,v 1.40 2015/08/05 23:15:41 tom Exp $
+# $Id: Makefile.in,v 1.45 2021/08/07 22:06:59 tom Exp $
 ##############################################################################
-# Copyright (c) 1998-2014,2015 Free Software Foundation, Inc.                #
+# Copyright 2018-2020,2021 Thomas E. Dickey                                  #
+# Copyright 1998-2014,2015 Free Software Foundation, Inc.                    #
 #                                                                            #
 # Permission is hereby granted, free of charge, to any person obtaining a    #
 # copy of this software and associated documentation files (the "Software"), #
@@ -66,6 +67,19 @@ INSTALL_DATA	= @INSTALL_DATA@
 
 DIRS_TO_MAKE	= @DIRS_TO_MAKE@
 
+@MAKE_PHONY@.PHONY :	all
+@MAKE_PHONY@.PHONY :	check
+@MAKE_PHONY@.PHONY :	clean
+@MAKE_PHONY@.PHONY :	depend
+@MAKE_PHONY@.PHONY :	distclean
+@MAKE_PHONY@.PHONY :	install
+@MAKE_PHONY@.PHONY :	mostlyclean
+@MAKE_PHONY@.PHONY :	preinstall
+@MAKE_PHONY@.PHONY :	realclean
+@MAKE_PHONY@.PHONY :	sources
+@MAKE_PHONY@.PHONY :	tags
+@MAKE_PHONY@.PHONY :	uninstall
+
 all ::	$(DIRS_TO_MAKE)
 
 $(DIRS_TO_MAKE) :
@@ -83,6 +97,7 @@ preinstall :
 	@ echo '    include directory: '$(include_dir)
 	@ echo '        man directory: '$(mandir)
 @MAKE_TERMINFO@	@ echo '   terminfo directory: '$(ticdir)
+@USE_FALLBACKS@	@ echo '  using fallback-list: '@FALLBACK_LIST@
 @MAKE_PC_FILES@	@ echo ' pkg-config directory: '$(pkgdir)
 	@ echo ''
 	@ test "$(include_dir)" = "$(prefix)/include" || \
@@ -96,6 +111,9 @@ preinstall :
 
 distclean \
 realclean ::
+
+check :
+	@ echo The test-programs are interactive
 
 
 # Put the common rules here so that we can easily construct the list of

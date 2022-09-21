@@ -7,7 +7,8 @@
 --                                 B O D Y                                  --
 --                                                                          --
 ------------------------------------------------------------------------------
--- Copyright (c) 1998-2009,2014 Free Software Foundation, Inc.              --
+-- Copyright 2018,2020 Thomas E. Dickey                                     --
+-- Copyright 1999-2009,2014 Free Software Foundation, Inc.                  --
 --                                                                          --
 -- Permission is hereby granted, free of charge, to any person obtaining a  --
 -- copy of this software and associated documentation files (the            --
@@ -35,8 +36,8 @@
 ------------------------------------------------------------------------------
 --  Author:  Juergen Pfeifer, 1996
 --  Version Control:
---  $Revision: 1.25 $
---  $Date: 2014/09/13 19:10:18 $
+--  $Revision: 1.28 $
+--  $Date: 2020/06/27 18:50:44 $
 --  Binding Version 01.00
 ------------------------------------------------------------------------------
 with Terminal_Interface.Curses.Aux; use Terminal_Interface.Curses.Aux;
@@ -44,8 +45,6 @@ with Interfaces.C; use Interfaces.C;
 use Interfaces;
 
 package body Terminal_Interface.Curses.Mouse is
-
-   use type System.Bit_Order;
 
    function Has_Mouse return Boolean
    is
@@ -148,6 +147,7 @@ package body Terminal_Interface.Curses.Mouse is
          Button := Button4;
       end if;
       if Button in Real_Buttons then
+         State := Released;  --  preset to non real button;
          L := 2 ** (6 * Mouse_Button'Pos (Button));
          for I in Button_State'Range loop
             if (Mask and L) /= 0 then
