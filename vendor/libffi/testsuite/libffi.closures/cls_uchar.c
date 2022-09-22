@@ -13,8 +13,6 @@ static void cls_ret_uchar_fn(ffi_cif* cif __UNUSED__, void* resp, void** args,
   *(ffi_arg*)resp = *(unsigned char *)args[0];
   printf("%d: %d\n",*(unsigned char *)args[0],
 	 (int)*(ffi_arg *)(resp));
-  CHECK(*(unsigned char *)args[0] == 127);
-  CHECK((int)*(ffi_arg *)(resp) == 127);
 }
 typedef unsigned char (*cls_ret_uchar)(unsigned char);
 
@@ -39,7 +37,6 @@ int main (void)
   /* { dg-output "127: 127" } */
   printf("res: %d\n",res);
   /* { dg-output "\nres: 127" } */
-  CHECK(res == 127);
 
   exit(0);
 }

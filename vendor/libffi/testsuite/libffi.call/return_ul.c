@@ -8,8 +8,6 @@
 #include "ffitest.h"
 static unsigned long return_ul(unsigned long ul1, unsigned long ul2)
 {
-  CHECK(ul1 == 1073741823L);
-  CHECK(ul2 == 1073741824L);
   return ul1 + ul2;
 }
 
@@ -35,8 +33,6 @@ int main (void)
   ffi_call(&cif, FFI_FN(return_ul), &res, values);
   printf("res: %lu, %lu\n", (unsigned long)res, ul1 + ul2);
   /* { dg-output "res: 2147483647, 2147483647" } */
-  CHECK(res == 2147483647L);
-  CHECK(ul1 + ul2 == 2147483647L);
 
   exit(0);
 }

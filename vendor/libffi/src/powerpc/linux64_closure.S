@@ -30,8 +30,6 @@
 
 	.file	"linux64_closure.S"
 
-	.machine altivec
-
 #ifdef POWERPC64
 	FFI_HIDDEN (ffi_closure_LINUX64)
 	.globl  ffi_closure_LINUX64

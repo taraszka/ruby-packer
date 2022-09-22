@@ -10,20 +10,14 @@
 
 #include "ffitest.h"
 
-#define BUF_SIZE 50
-static char buffer[BUF_SIZE];
-
 static void
-cls_double_va_fn(ffi_cif* cif __UNUSED__, void* resp,
+cls_double_va_fn(ffi_cif* cif __UNUSED__, void* resp, 
 		 void** args, void* userdata __UNUSED__)
 {
 	char*	format		= *(char**)args[0];
 	double	doubleValue	= *(double*)args[1];
 
 	*(ffi_arg*)resp = printf(format, doubleValue);
-	CHECK(*(ffi_arg*)resp == 4);
-	snprintf(buffer, BUF_SIZE, format, doubleValue);
-	CHECK(strncmp(buffer, "7.0\n", 4) == 0);
 }
 
 int main (void)
@@ -54,7 +48,6 @@ int main (void)
 	/* { dg-output "7.0" } */
 	printf("res: %d\n", (int) res);
 	/* { dg-output "\nres: 4" } */
-	CHECK(res == 4);
 
 	CHECK(ffi_prep_closure_loc(pcl, &cif, cls_double_va_fn, NULL,
 				   code) == FFI_OK);
@@ -63,7 +56,6 @@ int main (void)
 	/* { dg-output "\n7.0" } */
 	printf("res: %d\n", (int) res);
 	/* { dg-output "\nres: 4" } */
-	CHECK(res == 4);
 
 	exit(0);
 }

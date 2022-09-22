@@ -40,10 +40,6 @@ void* cls_pointer_fn2(void* a1, void* a2)
                (unsigned int)(uintptr_t) a2,
                (unsigned int)(uintptr_t) result);
 
-	CHECK((unsigned int)(uintptr_t) a1 == 0x8acf1356);
-	CHECK((unsigned int)(uintptr_t) a2 == 0x01234567);
-	CHECK((unsigned int)(uintptr_t) result == 0x8bf258bd);
-
 	return result;
 }
 
@@ -68,10 +64,6 @@ void* cls_pointer_fn1(void* a1, void* a2)
                (unsigned int)(intptr_t) a1,
                (unsigned int)(intptr_t) a2,
                (unsigned int)(intptr_t) result);
-
-	CHECK((unsigned int)(uintptr_t) a1 == 0x01234567);
-	CHECK((unsigned int)(uintptr_t) a2 == 0x89abcdef);
-	CHECK((unsigned int)(uintptr_t) result == 0x8acf1356);
 
 	result	= cls_pointer_fn2(result, a1);
 
@@ -136,7 +128,6 @@ int main (void)
 	/* { dg-output "\n0x01234567 0x89abcdef: 0x8acf1356" } */
 	/* { dg-output "\n0x8acf1356 0x01234567: 0x8bf258bd" } */
 	/* { dg-output "\nres: 0x8bf258bd" } */
-	CHECK(res == 0x8bf258bd);
 
 	CHECK(ffi_prep_closure_loc(pcl, &cif, cls_pointer_gn, NULL, code) == FFI_OK);
 
@@ -146,7 +137,6 @@ int main (void)
 	/* { dg-output "\n0x01234567 0x89abcdef: 0x8acf1356" } */
 	/* { dg-output "\n0x8acf1356 0x01234567: 0x8bf258bd" } */
 	/* { dg-output "\nres: 0x8bf258bd" } */
-	CHECK(res == 0x8bf258bd);
 
 	exit(0);
 }

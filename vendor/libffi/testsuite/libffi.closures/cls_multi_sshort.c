@@ -14,9 +14,6 @@ static signed short test_func_fn(signed short a1, signed short a2)
   result = a1 + a2;
 
   printf("%d %d: %d\n", a1, a2, result);
-  CHECK(a1 == 2);
-  CHECK(a2 == 32765);
-  CHECK(result == 32767);
 
   return result;
 
@@ -65,7 +62,6 @@ int main (void)
   /* { dg-output "2 32765: 32767" } */
   printf("res: %d\n", (unsigned short)res_call);
   /* { dg-output "\nres: 32767" } */
-  CHECK(res_call == 32767);
 
   CHECK(ffi_prep_closure_loc(pcl, &cif, test_func_gn, NULL, code)  == FFI_OK);
 
@@ -73,7 +69,6 @@ int main (void)
   /* { dg-output "\n2 32765: 32767" } */
   printf("res: %d\n", res_closure);
   /* { dg-output "\nres: 32767" } */
-  CHECK(res_closure == 32767);
 
   exit(0);
 }
