@@ -625,6 +625,10 @@ rb_provide_feature(rb_vm_t *vm, VALUE feature)
     rb_str_freeze(feature);
 
     get_loaded_features_index(vm);
+    // If loaded_features and loaded_features_snapshot share the same backing
+    // array, pushing into it would cause the whole array to be copied.
+    // To avoid this we first clear loaded_features_snapshot.
+    rb_ary_clear(vm->loaded_features_snapshot);
     rb_ary_push(features, rb_fstring(feature));
     features_index_add(vm, feature, INT2FIX(RARRAY_LEN(features)-1));
     reset_loaded_features_snapshot(vm);
@@ -1155,7 +1159,7 @@ require_internal(rb_execution_context_t *ec, VALUE fname, int exception, bool wa
     if (ftptr) load_unlock(th2->vm, RSTRING_PTR(path), !state);
 
     if (state) {
-        if (state == TAG_FATAL) {
+        if (state == TAG_FATAL || state == TAG_THROW) {
             EC_JUMP_TAG(ec, state);
         }
         else if (exception) {

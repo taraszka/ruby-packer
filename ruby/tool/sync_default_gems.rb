@@ -101,6 +101,7 @@ def sync_default_gems(gem)
     File.write("lib/bundler/bundler.gemspec", gemspec_content)
 
     cp_r("#{upstream}/bundler/spec", "spec/bundler")
+    cp_r(Dir.glob("#{upstream}/bundler/tool/bundler/dev_gems*"), "tool/bundler")
     cp_r(Dir.glob("#{upstream}/bundler/tool/bundler/test_gems*"), "tool/bundler")
     cp_r(Dir.glob("#{upstream}/bundler/tool/bundler/rubocop_gems*"), "tool/bundler")
     cp_r(Dir.glob("#{upstream}/bundler/tool/bundler/standard_gems*"), "tool/bundler")
@@ -529,7 +530,7 @@ def sync_lib(repo, upstream = nil)
   cp_r("#{upstream}/#{repo}.gemspec", "#{gemspec}")
 end
 
-def update_default_gems(gem)
+def update_default_gems(gem, release: false)
 
   author, repository = REPOSITORIES[gem.to_sym].split('/')
 
@@ -551,9 +552,15 @@ def update_default_gems(gem)
     end
     `git checkout ruby-core`
     `git rebase ruby-core/master`
-    `git checkout master`
-    `git fetch origin master`
-    `git rebase origin/master`
+    `git fetch origin --tags`
+
+    if release
+      last_release = `git tag`.chomp.split.delete_if{|v| v =~ /pre|beta/ }.last
+      `git checkout #{last_release}`
+    else
+      `git checkout master`
+      `git rebase origin/master`
+    end
   end
 end
 
@@ -565,7 +572,14 @@ when "up"
     REPOSITORIES.keys.each{|gem| update_default_gems(gem.to_s)}
   end
 when "all"
-  REPOSITORIES.keys.each{|gem| sync_default_gems(gem.to_s)}
+  if ARGV[1] == "release"
+    REPOSITORIES.keys.each do |gem|
+      update_default_gems(gem.to_s, release: true)
+      sync_default_gems(gem.to_s)
+    end
+  else
+    REPOSITORIES.keys.each{|gem| sync_default_gems(gem.to_s)}
+  end
 when "list"
   ARGV.shift
   pattern = Regexp.new(ARGV.join('|'))

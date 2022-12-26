@@ -1137,14 +1137,10 @@ rb_read_internal(rb_io_t *fptr, void *buf, size_t count)
 {
     VALUE scheduler = rb_fiber_scheduler_current();
     if (scheduler != Qnil) {
-        VALUE result = rb_fiber_scheduler_io_read_memory(scheduler, fptr->self, buf, count, count);
+        VALUE result = rb_fiber_scheduler_io_read_memory(scheduler, fptr->self, buf, count, 0);
 
         if (result != Qundef) {
-            ssize_t length = rb_fiber_scheduler_io_result_apply(result);
-
-            if (length < 0) rb_sys_fail_path(fptr->pathv);
-
-            return length;
+            return rb_fiber_scheduler_io_result_apply(result);
         }
     }
 
@@ -9526,16 +9522,16 @@ rb_f_readlines(int argc, VALUE *argv, VALUE recv)
 
 /*
  *  call-seq:
- *     ARGF.readlines(sep=$/)     -> array
+ *     ARGF.readlines(sep = $/)     -> array
  *     ARGF.readlines(limit)      -> array
  *     ARGF.readlines(sep, limit) -> array
  *
- *     ARGF.to_a(sep=$/)     -> array
+ *     ARGF.to_a(sep = $/)     -> array
  *     ARGF.to_a(limit)      -> array
  *     ARGF.to_a(sep, limit) -> array
  *
- *  Reads +ARGF+'s current file in its entirety, returning an +Array+ of its
- *  lines, one line per element. Lines are assumed to be separated by _sep_.
+ *  Reads each file in +ARGF+ in its entirety, returning an +Array+ containing
+ *  lines from the files. Lines are assumed to be separated by _sep_.
  *
  *     lines = ARGF.readlines
  *     lines[0]                #=> "This is line one\n"

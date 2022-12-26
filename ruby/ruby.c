@@ -26,7 +26,7 @@
 # include <sys/pstat.h>
 #endif
 
-#if defined(LOAD_RELATIVE) && defined(HAVE_DLADDR)
+#if (defined(LOAD_RELATIVE) || defined(__MACH__)) && defined(HAVE_DLADDR)
 # include <dlfcn.h>
 #endif
 
@@ -365,7 +365,7 @@ usage(const char *name, int help, int highlight, int columns)
         M("--mjit-wait",          "", "Wait until JIT compilation finishes every time (for testing)"),
         M("--mjit-save-temps",    "", "Save JIT temporary files in $TMP or /tmp (for testing)"),
         M("--mjit-verbose=num",   "", "Print JIT logs of level num or less to stderr (default: 0)"),
-        M("--mjit-max-cache=num", "", "Max number of methods to be JIT-ed in a cache (default: 100)"),
+        M("--mjit-max-cache=num", "", "Max number of methods to be JIT-ed in a cache (default: 10000)"),
         M("--mjit-min-calls=num", "", "Number of calls to trigger JIT (for testing, default: 10000)"),
     };
     static const struct message yjit_options[] = {
@@ -573,7 +573,7 @@ str_conv_enc(VALUE str, rb_encoding *from, rb_encoding *to)
 
 void ruby_init_loadpath(void);
 
-#if defined(LOAD_RELATIVE)
+#if defined(LOAD_RELATIVE) || defined(__MACH__)
 static VALUE
 runtime_libruby_path(void)
 {
@@ -654,6 +654,10 @@ runtime_libruby_path(void)
 #define INITIAL_LOAD_PATH_MARK rb_intern_const("@gem_prelude_index")
 
 VALUE ruby_archlibdir_path, ruby_prefix_path;
+#if defined(__MACH__)
+// A path to libruby.dylib itself or where it's statically linked to.
+VALUE rb_libruby_selfpath;
+#endif
 
 void
 ruby_init_loadpath(void)
@@ -664,6 +668,14 @@ ruby_init_loadpath(void)
 // --------- [Enclose.IO Hack start] ---------
 #ifndef ENCLOSE_IO_RUBYC_BUILD_PASS2
 // --------- [Enclose.IO Hack end] ---------
+#if defined(LOAD_RELATIVE) || defined(__MACH__)
+    VALUE libruby_path = runtime_libruby_path();
+# if defined(__MACH__)
+    rb_libruby_selfpath = libruby_path;
+    rb_gc_register_address(&rb_libruby_selfpath);
+# endif
+#endif
+
 #if defined LOAD_RELATIVE
 #if !defined ENABLE_MULTIARCH
 # define RUBY_ARCH_PATH ""
@@ -677,7 +689,7 @@ ruby_init_loadpath(void)
     size_t baselen;
     const char *p;
 
-    sopath = runtime_libruby_path();
+    sopath = libruby_path;
     libpath = RSTRING_PTR(sopath);
 
     p = strrchr(libpath, '/');
