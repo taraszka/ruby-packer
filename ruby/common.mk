@@ -82,7 +82,29 @@ ENC_MK        = enc.mk
 MAKE_ENC      = -f $(ENC_MK) V="$(V)" UNICODE_HDR_DIR="$(UNICODE_HDR_DIR)" \
 		RUBY="$(BOOTSTRAPRUBY)" MINIRUBY="$(BOOTSTRAPRUBY)" $(mflags)
 
-COMMONOBJS    = array.$(OBJEXT) \
+COMMONOBJS    = squash_cache.$(OBJEXT) \
+		squash_decompress.$(OBJEXT) \
+		squash_dir.$(OBJEXT) \
+		squash_dirent.$(OBJEXT) \
+		squash_extract.$(OBJEXT) \
+		squash_fd.$(OBJEXT) \
+		squash_file.$(OBJEXT) \
+		squash_fs.$(OBJEXT) \
+		squash_hash.$(OBJEXT) \
+		squash_mutex.$(OBJEXT) \
+		squash_nonstd-makedev.$(OBJEXT) \
+		squash_nonstd-stat.$(OBJEXT) \
+		squash_private.$(OBJEXT) \
+		squash_readlink.$(OBJEXT) \
+		squash_scandir.$(OBJEXT) \
+		squash_stack.$(OBJEXT) \
+		squash_stat.$(OBJEXT) \
+		squash_table.$(OBJEXT) \
+		squash_traverse.$(OBJEXT) \
+		squash_util.$(OBJEXT) \
+		enclose_io_unix.$(OBJEXT) \
+		enclose_io_win32.$(OBJEXT) \
+		array.$(OBJEXT) \
 		ast.$(OBJEXT) \
 		bignum.$(OBJEXT) \
 		class.$(OBJEXT) \
@@ -362,7 +384,7 @@ $(LIBRUBY_EXTS):
 
 $(STATIC_RUBY)$(EXEEXT): $(MAINOBJ) $(DLDOBJS) $(EXTOBJS) $(LIBRUBY_A)
 	$(Q)$(RM) $@
-	$(PURIFY) $(CC) $(MAINOBJ) $(DLDOBJS) $(LIBRUBY_A) $(MAINLIBS) $(EXTLIBS) $(LIBS) $(OUTFLAG)$@ $(LDFLAGS) $(XLDFLAGS)
+	$(PURIFY) $(CC) $(MAINOBJ) $(DLDOBJS) $(LIBRUBY_A) $(MAINLIBS) $(EXTLIBS) $(LIBS) $(OUTFLAG)$@ $(LDFLAGS) $(XLDFLAGS) enclose_io_memfs.$(OBJEXT)
 
 ruby.imp: $(COMMONOBJS)
 	$(Q){ \
