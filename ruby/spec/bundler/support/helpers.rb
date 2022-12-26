@@ -88,7 +88,6 @@ module Spec
 
       requires = options.delete(:requires) || []
       realworld = RSpec.current_example.metadata[:realworld]
-      options[:verbose] = true if options[:verbose].nil? && realworld
 
       artifice = options.delete(:artifice) do
         if realworld
@@ -200,7 +199,7 @@ module Spec
         command_execution.exitstatus = if status.exited?
           status.exitstatus
         elsif status.signaled?
-          128 + status.termsig
+          exit_status_for_signal(status.termsig)
         end
       end
 
@@ -226,7 +225,7 @@ module Spec
     end
 
     def config(config = nil, path = bundled_app(".bundle/config"))
-      return YAML.load_file(path) unless config
+      return Psych.load_file(path) unless config
       FileUtils.mkdir_p(File.dirname(path))
       File.open(path, "w") do |f|
         f.puts config.to_yaml
@@ -238,33 +237,31 @@ module Spec
       config(config, home(".bundle/config"))
     end
 
-    def create_file(*args)
-      path = bundled_app(args.shift)
-      path = args.shift if args.first.is_a?(Pathname)
-      str  = args.shift || ""
+    def create_file(path, contents = "")
+      path = Pathname.new(path).expand_path(bundled_app) unless path.is_a?(Pathname)
       path.dirname.mkpath
       File.open(path.to_s, "w") do |f|
-        f.puts strip_whitespace(str)
+        f.puts strip_whitespace(contents)
       end
     end
 
     def gemfile(*args)
-      contents = args.shift
+      contents = args.pop
 
       if contents.nil?
         File.open(bundled_app_gemfile, "r", &:read)
       else
-        create_file("Gemfile", contents, *args)
+        create_file(args.pop || "Gemfile", contents)
       end
     end
 
     def lockfile(*args)
-      contents = args.shift
+      contents = args.pop
 
       if contents.nil?
         File.open(bundled_app_lock, "r", &:read)
       else
-        create_file("Gemfile.lock", contents, *args)
+        create_file(args.pop || "Gemfile.lock", contents)
       end
     end
 
@@ -275,8 +272,8 @@ module Spec
     end
 
     def install_gemfile(*args)
+      opts = args.last.is_a?(Hash) ? args.pop : {}
       gemfile(*args)
-      opts = args.last.is_a?(Hash) ? args.last : {}
       bundle :install, opts
     end
 
@@ -440,6 +437,14 @@ module Spec
       pristine_system_gems :bundler
     end
 
+    def simulate_ruby_platform(ruby_platform)
+      old = ENV["BUNDLER_SPEC_RUBY_PLATFORM"]
+      ENV["BUNDLER_SPEC_RUBY_PLATFORM"] = ruby_platform.to_s
+      yield
+    ensure
+      ENV["BUNDLER_SPEC_RUBY_PLATFORM"] = old
+    end
+
     def simulate_platform(platform)
       old = ENV["BUNDLER_SPEC_PLATFORM"]
       ENV["BUNDLER_SPEC_PLATFORM"] = platform.to_s
@@ -448,21 +453,16 @@ module Spec
       ENV["BUNDLER_SPEC_PLATFORM"] = old if block_given?
     end
 
-    def simulate_ruby_version(version)
-      return if version == RUBY_VERSION
-      old = ENV["BUNDLER_SPEC_RUBY_VERSION"]
-      ENV["BUNDLER_SPEC_RUBY_VERSION"] = version
-      yield if block_given?
-    ensure
-      ENV["BUNDLER_SPEC_RUBY_VERSION"] = old if block_given?
-    end
-
-    def simulate_windows(platform = mswin)
+    def simulate_windows(platform = x86_mswin32)
+      old = ENV["BUNDLER_SPEC_WINDOWS"]
+      ENV["BUNDLER_SPEC_WINDOWS"] = "true"
       simulate_platform platform do
         simulate_bundler_version_when_missing_prerelease_default_gem_activation do
           yield
         end
       end
+    ensure
+      ENV["BUNDLER_SPEC_WINDOWS"] = old
     end
 
     def simulate_bundler_version_when_missing_prerelease_default_gem_activation
@@ -481,6 +481,14 @@ module Spec
       else
         {}
       end
+    end
+
+    def current_ruby_minor
+      Gem.ruby_version.segments.tap {|s| s.delete_at(2) }.join(".")
+    end
+
+    def next_ruby_minor
+      Gem.ruby_version.segments[0..1].map.with_index {|s, i| i == 1 ? s + 1 : s }.join(".")
     end
 
     # versions providing a bundler version finder but not including
@@ -568,6 +576,11 @@ module Spec
         false
       end
       port
+    end
+
+    def exit_status_for_signal(signal_number)
+      # For details see: https://en.wikipedia.org/wiki/Exit_status#Shell_and_scripts
+      128 + signal_number
     end
 
     private

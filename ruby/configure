@@ -698,6 +698,7 @@ BUILTIN_TRANSOBJS
 BUILTIN_TRANSSRCS
 BUILTIN_ENCOBJS
 USE_RUBYGEMS
+MKMF_VERBOSE
 MANTYPE
 vendorarchhdrdir
 sitearchhdrdir
@@ -782,11 +783,11 @@ DTRACE_OPT
 DTRACE_REBUILD
 DTRACE_OBJ
 DTRACE_EXT
+XRUBY_LIBPATHENV_WRAPPER
 EXECUTABLE_EXTS
 ARCHFILE
 LIBRUBY_RELATIVE
 EXTOUT
-BOOTSTRAPRUBY
 XRUBY
 RUNRUBY
 RUNRUBY_COMMAND
@@ -811,6 +812,7 @@ LIBPATHENV
 RPATHFLAG
 LIBPATHFLAG
 LINK_SO
+ADDITIONAL_DLDFLAGS
 ASMEXT
 LIBEXT
 DLEXT
@@ -970,12 +972,14 @@ with_gcc
 with_os_version_style
 with_arch
 enable_load_relative
+enable_rpath
 enable_werror
 with_compress_debug_sections
 enable_fortify_source
+with_gmp_dir
+with_gmp
 with_opt_dir
 with_winnt_ver
-with_gmp
 with_jemalloc
 enable_largefile
 enable_mathn
@@ -983,7 +987,6 @@ enable_setreuid
 with_coroutine
 with_dln_a_out
 with_mjit_tabs
-enable_rpath
 with_valgrind
 with_ext
 with_out_ext
@@ -1022,6 +1025,7 @@ with_sitearchhdrdir
 with_vendorhdrdir
 with_vendorarchhdrdir
 with_mantype
+enable_mkmf_verbose
 enable_rubygems
 with_ruby_pc
 with_destdir
@@ -1676,6 +1680,8 @@ Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --enable-load-relative  resolve load paths at run time
+  --enable-rpath          embed run path into extension libraries. enabled by
+                          default on ELF platforms
   --disable-werror        don't make warnings into errors even if a compiler
                           support -Werror feature [[disabled by default unless
                           development version]]
@@ -1686,8 +1692,6 @@ Optional Features:
   --enable-mathn          enable canonicalization for mathn
   --enable-setreuid       use setreuid()/setregid() according to need even if
                           obsolete
-  --enable-rpath          embed run path into extension libraries. enabled by
-                          default on ELF platforms
   --enable-multiarch      enable multiarch compatible directories
   --enable-shared         build a shared library for Ruby
   --disable-pie           disable PIE feature
@@ -1703,6 +1707,7 @@ Optional Features:
                           do not install static ruby library
   --disable-dln           disable dynamic link feature
   --enable-debug-env      enable RUBY_DEBUG environment variable
+  --enable-mkmf-verbose   enable verbose in mkmf
   --disable-rubygems      disable rubygems by default
 
 Optional Packages:
@@ -1721,10 +1726,11 @@ Optional Packages:
                           only for the target platform
   --with-compress-debug-sections=type
                           enable debug section compression
+  --with-gmp-dir=DIR      specify the prefix directory where gmp is installed
+  --without-gmp           disable GNU GMP to accelerate Bignum operations
   --with-opt-dir=DIR-LIST add optional headers and libraries directories
                           separated by $PATH_SEPARATOR
   --with-winnt-ver=0xXXXX target Windows NT version (default to 0x0600)
-  --without-gmp           disable GNU GMP to accelerate Bignum operations
   --with-jemalloc         use jemalloc allocator
   --with-coroutine=IMPLEMENTATION
                           specify the coroutine implementation to use
@@ -3722,17 +3728,32 @@ fi
 
 fi
 
+# BASERUBY must be >= 2.2.0. Note that `"2.2.0" > "2.2"` is true.
 if test "$HAVE_BASERUBY" != no -a "`RUBYOPT=- $BASERUBY --disable=gems -e 'print 42 if RUBY_VERSION > "2.2"' 2>/dev/null`" = 42
 then :
 
+    case "$build_os" in #(
+  mingw*) :
+
+        # Can MSys shell run a command with a drive letter?
+        RUBYOPT=- `cygpath -ma "$BASERUBY"` --disable=gems -e exit 2>/dev/null || HAVE_BASERUBY=no
+     ;; #(
+  *) :
+     ;;
+esac
     BASERUBY="$BASERUBY --disable=gems"
     BASERUBY_VERSION=`$BASERUBY -v`
     $BASERUBY -C "$srcdir" tool/downloader.rb -d tool -e gnu config.guess config.sub >&6
 
 else $as_nop
 
-    BASERUBY="echo executable host ruby is required.  use --with-baseruby option.; false"
     HAVE_BASERUBY=no
+
+fi
+if test "$HAVE_BASERUBY" = no
+then :
+
+    BASERUBY="echo executable host ruby is required.  use --with-baseruby option.; false"
 
 fi
 
@@ -9712,6 +9733,7 @@ fi
   *) :
      ;;
 esac
+    rb_cv_binary_elf=no
     : ${enable_shared=yes}
      ;; #(
   hiuxmpp*) :
@@ -10364,21 +10386,51 @@ else $as_nop
 
 fi
 
-: ${RPATHFLAG=''}
-rpathflag=''
-if test x"${RPATHFLAG}" = x
+: "rpath" && {
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether ELF binaries are produced" >&5
+printf %s "checking whether ELF binaries are produced... " >&6; }
+if test ${rb_cv_binary_elf+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main (void)
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
 then :
 
-    case "$target_os" in #(
-  hpux*) :
-    if test "$rb_cv_prog_gnu_ld" = no
+            case "`head -1 conftest$EXEEXT | tr -dc '\177ELF' | tr '\177' .`" in #(
+  .ELF*) :
+    rb_cv_binary_elf=yes ;; #(
+  *) :
+    rb_cv_binary_elf=no ;;
+esac
+else $as_nop
+  rb_cv_binary_elf=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rb_cv_binary_elf" >&5
+    colorize_result "$rb_cv_binary_elf" ; }
+
+    rpathflag=''
+    if test x"${RPATHFLAG=}" = x
 then :
-  rpathflag='+b '
-fi ;; #(
+
+	case "$target_os" in #(
   aix*) :
     rpathflag='-blibpath:' ;; #(
   *) :
-    for rpathflag in -R "-rpath "; do
+    for rpathflag in "-rpath " -R; do
 	    case "$rpathflag" in #(
   *" ") :
     case "${linker_flag}" in #(
@@ -10451,16 +10503,39 @@ fi
 
 	    if test "x${rpathflag}" != x
 then :
-
+  break
 fi
         done ;;
 esac
 
 else $as_nop
 
-    rpathflag=`echo "$RPATHFLAG" | sed 's/%.*//'`
+        rpathflag=`echo "$RPATHFLAG" | sed 's/%.*//'`
 
 fi
+
+    # Check whether --enable-rpath was given.
+if test ${enable_rpath+y}
+then :
+  enableval=$enable_rpath; enable_rpath=$enableval
+else $as_nop
+  enable_rpath="$rb_cv_binary_elf"
+fi
+
+
+    if test "$enable_rpath:${RPATHFLAG}" = yes:
+then :
+
+        RPATHFLAG="${rpathflag:+ ${rpathflag}%1\$-s}"
+
+fi
+    case ${RPATHFLAG} in #(
+  *'%1$'*) :
+    : ${LIBPATHFLAG=' -L%1$-s'} ;; #(
+  *) :
+    : ${LIBPATHFLAG=' -L%s'} ;;
+esac
+}
 
 
     save_LDFLAGS="$LDFLAGS"
@@ -12502,22 +12577,48 @@ fi
      ;;
 esac
 
+OPT_DIR=
+
+# Check whether --with-gmp-dir was given.
+if test ${with_gmp_dir+y}
+then :
+  withval=$with_gmp_dir; OPT_DIR="${OPT_DIR:+$OPT_DIR$PATH_SEPARATOR}$withval"
+fi
+
+
+# Check whether --with-gmp was given.
+if test ${with_gmp+y}
+then :
+  withval=$with_gmp;
+else $as_nop
+  with_gmp=yes
+fi
+
+
 
 # Check whether --with-opt-dir was given.
 if test ${with_opt_dir+y}
 then :
-  withval=$with_opt_dir;
-		val=`echo "$PATH_SEPARATOR$withval" | sed "s|$PATH_SEPARATOR\([^$PATH_SEPARATOR]*\)| -I\1/include|g;s/^ //"`
-		CPPFLAGS="$CPPFLAGS $val"
-		val=`echo "$PATH_SEPARATOR$withval" | sed "s|$PATH_SEPARATOR\([^$PATH_SEPARATOR]*\)| -L\1/lib${rpathflag:+ $rpathflag\\\\1/lib}|g;s/^ //"`
-		LDFLAGS="$LDFLAGS $val"
-		LDFLAGS_OPTDIR="$val"
-		OPT_DIR="$withval"
-
-else $as_nop
-  OPT_DIR=
+  withval=$with_opt_dir; OPT_DIR="${OPT_DIR:+$OPT_DIR$PATH_SEPARATOR}$withval"
 fi
 
+
+if test "x$OPT_DIR" != x
+then :
+
+    val=`IFS="$PATH_SEPARATOR"
+        for dir in $OPT_DIR; do
+            test -z "$dir" && continue
+            echo x ${LIBPATHFLAG} ${RPATHFLAG} |
+            sed "s/^x *//;s${IFS}"'%1\\$-s'"${IFS}${dir}/lib${IFS}g;s${IFS}%s${IFS}${dir}/lib${IFS}g"
+        done | tr '\012' ' ' | sed 's/ *$//'`
+    LDFLAGS="${LDFLAGS:+$LDFLAGS }$val"
+    DLDFLAGS="${DLDFLAGS:+$DLDFLAGS }$val"
+    LDFLAGS_OPTDIR="$val"
+    CPPFLAGS="${CPPFLAGS:+$CPPFLAGS }"`echo "$OPT_DIR" | tr "${PATH_SEPARATOR}" '\012' |
+        sed '/^$/d;s|^|-I|;s|$|/include|' | tr '\012' ' ' | sed 's/ *$//'`
+
+fi
 
 test -z "${ac_env_CFLAGS_set}" -a -n "${cflags+set}" && eval CFLAGS="\"$cflags $ARCH_FLAG\""
 test -z "${ac_env_CXXFLAGS_set}" -a -n "${cxxflags+set}" && eval CXXFLAGS="\"$cxxflags $ARCH_FLAG\""
@@ -13245,7 +13346,6 @@ esac
 		ac_cv_func_getpgrp_void=no
 		ac_cv_func_memcmp_working=yes
 		ac_cv_lib_dl_dlopen=no
-		rb_cv_binary_elf=no
 		rb_cv_negative_time_t=yes
 		ac_cv_func_fcntl=yes
 		ac_cv_func_flock=yes
@@ -13647,57 +13747,6 @@ then :
 
 fi
   # SunOS/Solaris
-
-if pkg-config --exists capstone; then
-   CAPSTONE_CFLAGS=`pkg-config --cflags capstone`
-   CAPSTONE_LIB_L=`pkg-config --libs-only-L capstone`
-   LDFLAGS="$LDFLAGS $CAPSTONE_LIB_L"
-   CFLAGS="$CFLAGS $CAPSTONE_CFLAGS"
-fi
-
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for cs_open in -lcapstone" >&5
-printf %s "checking for cs_open in -lcapstone... " >&6; }
-if test ${ac_cv_lib_capstone_cs_open+y}
-then :
-  printf %s "(cached) " >&6
-else $as_nop
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lcapstone  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-char cs_open ();
-int
-main (void)
-{
-return cs_open ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_capstone_cs_open=yes
-else $as_nop
-  ac_cv_lib_capstone_cs_open=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_capstone_cs_open" >&5
-    colorize_result "$ac_cv_lib_capstone_cs_open" ; }
-if test "x$ac_cv_lib_capstone_cs_open" = xyes
-then :
-  printf "%s\n" "#define HAVE_LIBCAPSTONE 1" >>confdefs.h
-
-  LIBS="-lcapstone $LIBS"
-
-fi
- # Capstone disassembler for debugging YJIT
 
 ac_header_dirent=no
 for ac_hdr in dirent.h sys/ndir.h sys/dir.h ndir.h; do
@@ -14469,15 +14518,6 @@ fi
 esac
 
 
-
-
-# Check whether --with-gmp was given.
-if test ${with_gmp+y}
-then :
-  withval=$with_gmp;
-else $as_nop
-  with_gmp=yes
-fi
 
 if test "x$with_gmp" != xno
 then :
@@ -30230,41 +30270,6 @@ esac
 fi
 
 
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether ELF binaries are produced" >&5
-printf %s "checking whether ELF binaries are produced... " >&6; }
-if test ${rb_cv_binary_elf+y}
-then :
-  printf %s "(cached) " >&6
-else $as_nop
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-int
-main (void)
-{
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-
-case "`head -1 conftest$EXEEXT | tr -dc '\177ELF' | tr '\177' .`" in #(
-  .ELF*) :
-    rb_cv_binary_elf=yes ;; #(
-  *) :
-    rb_cv_binary_elf=no ;;
-esac
-else $as_nop
-  rb_cv_binary_elf=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rb_cv_binary_elf" >&5
-    colorize_result "$rb_cv_binary_elf" ; }
-
 if test "$rb_cv_binary_elf" = yes
 then :
 
@@ -30461,16 +30466,7 @@ fi
 }
 
 : "rpath" && {
-  # Check whether --enable-rpath was given.
-if test ${enable_rpath+y}
-then :
-  enableval=$enable_rpath; enable_rpath=$enableval
-else $as_nop
-  enable_rpath="$rb_cv_binary_elf"
-fi
-
-
-  case "$target_os" in #(
+    case "$target_os" in #(
   hpux*) :
     	DLDFLAGS="$DLDFLAGS -E"
 			: ${LDSHARED='$(LD) -b'}
@@ -30546,7 +30542,6 @@ fi
   interix*) :
     	: ${LDSHARED='$(CC) -shared'}
 			XLDFLAGS="$XLDFLAGS -Wl,-E"
-			LIBPATHFLAG=" -L%1\$-s"
 			rb_cv_dlopen=yes ;; #(
   freebsd*|dragonfly*) :
 
@@ -30578,6 +30573,20 @@ fi
 			: ${LDFLAGS=""}
 			: ${LIBPATHENV=DYLD_FALLBACK_LIBRARY_PATH}
 			: ${PRELOADENV=DYLD_INSERT_LIBRARIES}
+                        if test x"$enable_shared" = xyes
+then :
+
+                            # Resolve symbols from libruby.dylib when --enable-shared
+                            EXTDLDFLAGS='$(LIBRUBYARG_SHARED)'
+
+elif test "x$EXTSTATIC" = x
+then :
+
+                            # When building exts as bundles, a mach-o bundle needs to know its loader
+                            # program to bind symbols from the ruby executable
+                            EXTDLDFLAGS="-bundle_loader '\$(BUILTRUBY)'"
+
+fi
 			rb_cv_dlopen=yes ;; #(
   aix*) :
     	: ${LDSHARED='$(CC)'}
@@ -30621,20 +30630,23 @@ fi
   *) :
     	: ${LDSHARED='$(LD)'} ;;
 esac
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rb_cv_dlopen" >&5
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rb_cv_dlopen" >&5
     colorize_result "$rb_cv_dlopen" ; }
+}
 
-  if test "$rb_cv_dlopen" = yes
+if test "$rb_cv_dlopen" = yes
 then :
 
     case "$target_os" in #(
   darwin*) :
 
+        ADDITIONAL_DLDFLAGS=""
+
 	for flag in \
-	  "-undefined dynamic_lookup" \
 	  "-multiply_defined suppress" \
+	  "-undefined dynamic_lookup" \
 	  ; do
-	  test "x${linker_flag}" = x || flag="${linker_flag}`echo ${flag} | tr ' ' ,`"
+            test "x${linker_flag}" = x || flag="${linker_flag}`echo ${flag} | tr ' ' ,`"
 
     save_LDFLAGS="$LDFLAGS"
     LDFLAGS="$LDFLAGS $flag"
@@ -30693,10 +30705,21 @@ fi
     LDFLAGS="$save_LDFLAGS"
     save_LDFLAGS=
 
-	  if test "x$flag" != x
+            if test x"$flag" = x
+then :
+  continue
+fi
+
+            { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking whether $flag is accepted for bundle" >&5
+printf %s "checking whether $flag is accepted for bundle... " >&6; }
+            : > conftest.c
+            if ${LDSHARED/'$(CC)'/$CC} -o conftest.bundle $flag conftest.c >/dev/null 2>conftest.err &&
+                test ! -s conftest.err
 then :
 
-	    # RUBY_APPEND_OPTIONS(DLDFLAGS)
+                { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+    printf "%s\n" "${msg_result_yes}yes${msg_reset}" >&6 ; }
+                # RUBY_APPEND_OPTIONS(DLDFLAGS)
 	for rb_opt in $flag; do
 	case " ${DLDFLAGS-} " in #(
   *" ${rb_opt} "*) :
@@ -30708,27 +30731,31 @@ then :
 esac
 	done
 
-fi
+else $as_nop
+
+                { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
+    printf "%s\n" "${msg_result_no}no${msg_reset}" >&6 ; }
+                # RUBY_APPEND_OPTIONS(ADDITIONAL_DLDFLAGS)
+	for rb_opt in $flag; do
+	case " ${ADDITIONAL_DLDFLAGS-} " in #(
+  *" ${rb_opt} "*) :
+     ;; #(
+  '  ') :
+     ADDITIONAL_DLDFLAGS="${rb_opt}" ;; #(
+  *) :
+     ADDITIONAL_DLDFLAGS="$ADDITIONAL_DLDFLAGS ${rb_opt}" ;;
+esac
 	done
-       ;; #(
+
+fi
+            rm -fr conftest.*
+	done
+     ;; #(
   *) :
      ;;
 esac
 
 fi
-
-  if test "$enable_rpath:${RPATHFLAG}" = yes:
-then :
-
-      if test "x$rpathflag" != x
-then :
-
-	  RPATHFLAG=" ${rpathflag}%1\$-s"
-
-fi
-
-fi
-}
 
 if test "${LDSHAREDXX}" = ""
 then :
@@ -30754,12 +30781,6 @@ then :
 esac
 
 fi
-case ${RPATHFLAG} in #(
-  *'%1$'*) :
-    : ${LIBPATHFLAG=' -L%1$-s'} ;; #(
-  *) :
-    : ${LIBPATHFLAG=' -L%s'} ;;
-esac
 
 
 
@@ -30769,29 +30790,6 @@ LIBPATHENV="${LIBPATHENV-LD_LIBRARY_PATH}"
 PRELOADENV="${PRELOADENV-LD_PRELOAD}"
 
 
-
-if test "x$OPT_DIR" != x
-then :
-
-    pat=`echo "${LDFLAGS_OPTDIR}" | sed 's/[][\\.*|]/\\\\&/'`
-    LDFLAGS=`echo "${LDFLAGS}" | sed "s| ${pat}||"`
-    val=`IFS="$PATH_SEPARATOR"
-        for dir in $OPT_DIR; do
-            echo x ${LIBPATHFLAG} ${RPATHFLAG} |
-            sed "s/^x *//;s${IFS}"'%1\\$-s'"${IFS}${dir}/lib${IFS}g;s${IFS}%s${IFS}${dir}/lib${IFS}g"
-        done | tr '\012' ' ' | sed 's/ *$//'`
-    if test x"$val" != x
-then :
-
-	test x"${LDFLAGS}" = x || LDFLAGS="$LDFLAGS "
-	LDFLAGS="$LDFLAGS$val"
-	test x"${DLDFLAGS}" = x || DLDFLAGS="$DLDFLAGS "
-	DLDFLAGS="$DLDFLAGS$val"
-
-fi
-    LDFLAGS_OPTDIR="$val"
-
-fi
 
 case "$target_os" in #(
   freebsd*) :
@@ -31393,7 +31391,6 @@ esac
 done
 
 BTESTRUBY='$(MINIRUBY)'
-BOOTSTRAPRUBY='$(BASERUBY)'
 if test x"$cross_compiling" = xyes
 then :
 
@@ -31421,17 +31418,10 @@ else $as_nop
   RUNRUBY_COMMAND='$(MINIRUBY) $(tooldir)/runruby.rb --extout=$(EXTOUT) $(RUNRUBYOPT)'
   RUNRUBY='$(RUNRUBY_COMMAND) --'
   XRUBY='$(RUNRUBY)'
-  case "$HAVE_BASERUBY:$build_os" in #(
-  no:*|*:mingw*) :
-    BOOTSTRAPRUBY='$(MINIRUBY)' ;; #(
-  *) :
-     ;;
-esac
   TEST_RUNNABLE=yes
   CROSS_COMPILING=no
 
 fi
-
 
 
 
@@ -32110,7 +32100,8 @@ then :
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
     printf "%s\n" "${msg_result_no}no${msg_reset}" >&6 ; }
 else $as_nop
-  PREP="$PREP"' exe/$(PROGRAM)'
+  XRUBY_LIBPATHENV_WRAPPER='exe/$(PROGRAM)'
+
 	{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
     printf "%s\n" "${msg_result_yes}yes${msg_reset}" >&6 ; }
 
@@ -33669,6 +33660,17 @@ else $as_nop
 fi
 
 fi
+
+
+MKMF_VERBOSE=0
+# Check whether --enable-mkmf-verbose was given.
+if test ${enable_mkmf_verbose+y}
+then :
+  enableval=$enable_mkmf_verbose; MKMF_VERBOSE=1
+else $as_nop
+  MKMF_VERBOSE=0
+fi
+
 
 
 # Check whether --enable-rubygems was given.

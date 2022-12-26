@@ -830,6 +830,9 @@ thread_start_func_2(rb_thread_t *th, VALUE *stack_start)
     else {
         errinfo = th->ec->errinfo;
 
+        VALUE exc = rb_vm_make_jump_tag_but_local_jump(state, Qundef);
+        if (!NIL_P(exc)) errinfo = exc;
+
         if (state == TAG_FATAL) {
             if (th->invoke_type == thread_invoke_type_ractor_proc) {
                 rb_ractor_atexit(th->ec, Qnil);
@@ -1361,6 +1364,10 @@ thread_value(VALUE self)
 {
     rb_thread_t *th = rb_thread_ptr(self);
     thread_join(th, Qnil, 0);
+    if (th->value == Qundef) {
+        // If the thread is dead because we forked th->value is still Qundef.
+        return Qnil;
+    }
     return th->value;
 }
 
@@ -4498,7 +4505,11 @@ select_single_cleanup(VALUE ptr)
 {
     struct select_args *args = (struct select_args *)ptr;
 
-    list_del(&args->wfd.wfd_node);
+    RB_VM_LOCK_ENTER();
+    {
+        list_del(&args->wfd.wfd_node);
+    }
+    RB_VM_LOCK_LEAVE();
     if (args->read) rb_fd_term(args->read);
     if (args->write) rb_fd_term(args->write);
     if (args->except) rb_fd_term(args->except);
